@@ -1,0 +1,30 @@
+[project]
+name = "shuddhalekhan"
+version = "0.2.0"
+description = "शुद्धलेखन (Shuddhalekhan) - Desktop Speech-to-Text application with global hotkey support using OpenAI Whisper"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "keyboard>=0.13.5",
+    "pyaudio>=0.2.14",
+    "ruff>=0.14.11",
+    "torch>=2.9.1",
+    "transformers>=4.57.5",
+    "pystray>=0.19.5",
+    "pynput>=1.7.6",
+    "pyperclip>=1.8.2",
+    "pillow>=10.0.0",
+    "pyyaml>=6.0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black>=24.0.0",
+    "mypy>=1.8.0",
+    "pyinstaller>=6.0.0",
+]
+
+[project.scripts]
+shuddhalekhan = "app.main:main"
+build-exe = "build:main"
+
