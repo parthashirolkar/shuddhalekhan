@@ -30,38 +30,88 @@ Push-to-talk speech-to-text using OpenAI's Whisper Large V3 Turbo model with mul
     uv sync
     ```
 
-2. **Run** GUI Application:
-    ```bash
-    uv run python -m app.main
-    ```
+## How to Build
 
-    Or use the script entry:
-    ```bash
-    uv run speech-gui
-    ```
+### Option 1: Development Run (Requires Python 3.12+)
+```bash
+# Install dependencies first
+uv sync
+
+# Run GUI application
+uv run python -m app.main
+```
+
+### Option 2: Create Installer (Recommended for Distribution)
+
+#### A. Inno Setup Installer (Professional, ~50MB download)
+
+```bash
+# Build installer (requires Inno Setup Compiler - ISCC)
+python build.py installer
+
+# This creates: Output/shuddhalekhan-setup.exe (~30-50MB)
+# Includes:
+#   - shuddhalekhan.exe (your app)
+#   - check_python_312.cmd (installs Python 3.12 if needed)
+#   - Icon and desktop shortcut
+```
+```
+
+#### B. PyInstaller All-in-One (For power users, ~2.4GB)
+
+```bash
+# Build single EXE with everything bundled
+python build.py pyinstaller
+
+# This creates: dist/Shuddhalekhan.exe (~2.4GB)
+# WARNING: Includes torch and transformers - huge download!
+# Recommended only for testing or users who want zero-setup
+```
+
+---
 
 ## Usage
 
-1. **Wait for model to load** (first run downloads model ~2.5GB)
+### Option 1: Development Run (Requires Python 3.12+)
+```bash
+# Install dependencies first
+uv sync
 
-2. **Use global hotkeys**:
-    - Press **Ctrl+Win** to start recording
-    - Press **Ctrl** to stop recording and transcribe
-    - Press **Alt** to stop and transcribe (no newline)
-    - Or right-click system tray icon and select "Record"
+# Run GUI application
+uv run python -m app.main
 
-3. **The transcribed text is automatically inserted** into the active text field in any application:
-    - Notepad
-    - Microsoft Word
-    - Web browsers (Chrome, Edge, Firefox)
-    - Code editors (VS Code, etc.)
-    - Any text field with keyboard focus
-
-## Configuration
-
-A configuration file is automatically created at:
+# Or use script entry
+uv run shuddhalekhan
 ```
-~/.speech-2-text/config.yaml
+
+### Option 2: Create Installer (Recommended for Distribution)
+
+#### A. Inno Setup Installer (Professional, ~50MB download)
+
+```bash
+# Build installer (requires Inno Setup Compiler - ISCC)
+python build.py installer
+
+# This creates: Output/shuddhalekhan-setup.exe (~30-50MB)
+# Includes:
+#   - shuddhalekhan.exe (your app)
+#   - check_python_312.cmd (installs Python 3.12 if needed)
+#   - Icon and desktop shortcut
+```
+
+#### B. PyInstaller All-in-One (For power users, ~2.4GB)
+
+```bash
+# Build single EXE with everything bundled
+python build.py pyinstaller
+
+# This creates: dist/Shuddhalekhan.exe (~2.4GB)
+# WARNING: Includes torch and transformers - huge download!
+# Recommended only for testing or users who want zero-setup
+```
+~/.shuddhalekhan/config.yaml
+```
+~/.shuddhalekhan/config.yaml
 ```
 
 You can customize:

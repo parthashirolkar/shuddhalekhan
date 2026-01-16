@@ -32,6 +32,7 @@ class SpeechToTextApp:
         """
         self.config = Config(config_path)
         self.is_recording = False
+        self.model_loaded = False
 
         # Initialize components
         self.recorder = AudioRecorder()
@@ -55,6 +56,14 @@ class SpeechToTextApp:
 
     def start_recording(self):
         """Start audio recording"""
+        if not self.model_loaded:
+            print(
+                "[WARNING] Model still loading, please wait a few seconds...",
+                file=sys.stderr,
+                flush=True,
+            )
+            return
+
         if self.is_recording:
             print("[WARNING] Already recording", flush=True)
             return
@@ -75,15 +84,19 @@ class SpeechToTextApp:
         self.tray_app.set_recording_state(False)
         return audio
 
-    def stop_and_transcribe(self):
-        """Stop recording and transcribe to text"""
+    def _stop_and_transcribe_internal(self, add_newline: bool):
+        """
+        Internal method: Stop recording and transcribe
+
+        Args:
+            add_newline: If True, adds automatic Enter after injection
+        """
         if not self.is_recording:
             print("[WARNING] Not recording", flush=True)
             return
 
         self.is_recording = False
         self.tray_app.set_recording_state(False)
-
         print("[STOP] Transcribing...", flush=True)
         audio = self.recorder.stop_recording()
 
@@ -105,51 +118,33 @@ class SpeechToTextApp:
 
                 # Inject into active window
                 self.text_injector.inject(text)
-                print("[INFO] Text injected into active window", flush=True)
+
+                # Add newline if requested
+                if add_newline:
+                    from pynput.keyboard import Key
+
+                    time.sleep(0.1)
+                    self.text_injector.keyboard.press(Key.enter)
+                    self.text_injector.keyboard.release(Key.enter)
+                    msg = "active window"
+                else:
+                    msg = "active field"
+
+                print(f"[INFO] Text injected into {msg}", flush=True)
             else:
                 print(
                     "[ERROR] Transcription failed or empty", file=sys.stderr, flush=True
                 )
         else:
             print("[ERROR] No audio captured", file=sys.stderr, flush=True)
+
+    def stop_and_transcribe(self):
+        """Stop recording and transcribe to text (with automatic Enter)"""
+        self._stop_and_transcribe_internal(add_newline=True)
 
     def stop_and_send(self):
-        """Stop recording and transcribe (no newline)"""
-        if not self.is_recording:
-            print("[WARNING] Not recording", flush=True)
-            return
-
-        self.is_recording = False
-        self.tray_app.set_recording_state(False)
-
-        print("[STOP] Transcribing...", flush=True)
-        audio = self.recorder.stop_recording()
-
-        if audio is not None:
-            # Check audio duration
-            from .recorder import SAMPLE_RATE
-
-            duration = len(audio) / SAMPLE_RATE
-
-            if duration < 0.3:
-                print("[WARNING] Recording too short (min 0.3s)", flush=True)
-                return
-
-            # Transcribe
-            text = self.model.transcribe(audio)
-
-            if text and text.strip():
-                print(f"[OUTPUT] {text}", flush=True)
-
-                # Inject text (no automatic Enter)
-                self.text_injector.inject(text)
-                print("[INFO] Text injected into active field", flush=True)
-            else:
-                print(
-                    "[ERROR] Transcription failed or empty", file=sys.stderr, flush=True
-                )
-        else:
-            print("[ERROR] No audio captured", file=sys.stderr, flush=True)
+        """Stop recording and transcribe (no automatic Enter)"""
+        self._stop_and_transcribe_internal(add_newline=False)
 
     def quit(self):
         """Quit application"""
@@ -183,28 +178,39 @@ class SpeechToTextApp:
         print("=" * 60)
         print()
 
-        # Load model in background
-        print("[INFO] Loading model in background...", flush=True)
+        # Start model loading in background (non-blocking)
+        print("[INFO] Starting model load in background...", flush=True)
         self.model.load_model_async()
 
-        # Wait for model to load before running tray
-        print("[INFO] Waiting for model to load (up to 60s)...", flush=True)
-        if not self.model.wait_for_model(timeout=60):
-            print("[ERROR] Model failed to load", file=sys.stderr, flush=True)
-            print(
-                "[INFO] Application will still run, but transcription will fail",
-                flush=True,
-            )
-        else:
-            print("[INFO] Model loaded successfully!", flush=True)
+        # Wait briefly to ensure model loading started
+        time.sleep(0.5)
 
         print()
         print("[INFO] System tray icon created. Application is running.")
+        print(
+            "[INFO] Model loading in background - wait a few seconds before recording."
+        )
         print("[INFO] Use hotkeys or right-click tray icon to control.")
         print("[INFO] Press Ctrl+C in terminal to exit.")
         print()
 
-        # Run tray icon (blocking call)
+        # Start a background thread to monitor model loading
+        def _wait_for_model():
+            if self.model.wait_for_model(timeout=120):
+                self.model_loaded = True
+                self.tray_app.icon.title = "शुद्धलेखन - Ready to record"  # Update tooltip
+                print("[INFO] Model loaded successfully! Ready to record.", flush=True)
+            else:
+                self.tray_app.icon.title = "शुद्धलेखन - Model loading failed"
+                print(
+                    "[ERROR] Model failed to load - transcription will fail.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+        Thread(target=_wait_for_model, daemon=True).start()
+
+        # Run tray icon immediately (no blocking on model load!)
         try:
             self.tray_app.run()
         except KeyboardInterrupt:
