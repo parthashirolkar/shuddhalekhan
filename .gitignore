@@ -1,16 +1,15 @@
 # Python-generated files
 __pycache__/
 *.py[oc]
+
+# Build outputs
 build/
 dist/
-wheels/
-*.egg-info/
+Output/
+*.spec
 
 # Virtual environments
 .venv
-
-# Build outputs
-*.spec
 
 # Assets (icon will be generated)
 assets/*.ico
