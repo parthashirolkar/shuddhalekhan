@@ -6,10 +6,11 @@ This file provides guidelines for agentic coding tools working in this repositor
 
 ## Project Overview
 
-Python 3.12+ speech-to-text CLI application using OpenAI Whisper Large V3 Turbo model.
-- **Package Manager**: UV
-- **Main Script**: `main.py`
-- **Model**: Hugging Face `openai/whisper-large-v3-turbo`
+TypeScript/Bun speech-to-text CLI application using whisper.cpp Docker container for GPU-accelerated transcription.
+- **Runtime**: Bun v1.3.5+
+- **Entry Point**: `ts-version/src/index.ts`
+- **Model**: whisper.cpp with `ggml-large-v3-turbo.bin`
+- **Native Modules**: @winput/keyboard, node-cpal (N-API bindings)
 
 ---
 
@@ -17,25 +18,22 @@ Python 3.12+ speech-to-text CLI application using OpenAI Whisper Large V3 Turbo 
 
 ```bash
 # Install dependencies
-uv sync
+bun install
 
 # Run the application
-uv run python main.py
+bun run src/index.ts
 
-# Format (if black added)
-uv run black main.py
+# Build standalone executable
+bun build src/index.ts --compile --outfile speech-to-text.exe
 
-# Lint (if ruff added)
-uv run ruff check main.py
+# Type check (if tsc added)
+bunx tsc --noEmit
 
-# Type check (if mypy added)
-uv run mypy main.py
-
-# Run tests (if pytest added)
-uv run pytest tests/test_specific.py
+# Run tests (if test framework added)
+bun test tests/*.test.ts
 
 # Run single test function
-uv run pytest tests/test_specific.py::test_function_name
+bun test tests/*.test.ts --test-name-pattern "test_function_name"
 ```
 
 ---
@@ -44,106 +42,235 @@ uv run pytest tests/test_specific.py::test_function_name
 
 ### Imports
 
-- Group imports: stdlib, third-party, local (blank lines between)
+- Use `node:` prefix for built-in Node.js modules
+- Group imports: stdlib (node:), third-party, local (blank lines between)
 - Order alphabetically within groups
-- Avoid wildcard imports
+- No wildcard imports
+- Use type-only imports for types: `import type { KeyName } from "@winput/keyboard"`
 
-```python
-import sys
-import time
-import threading
-import numpy as np
-import torch
-from transformers import AutoModelForSpeechSeq2Seq
+```typescript
+import { Buffer } from "node:buffer";
+import { keyboard } from "@winput/keyboard";
+import { AudioRecorder } from "./audio-recorder.ts";
 ```
 
 ### Formatting & Naming
 
-- 4-space indentation, 100 char line limit
-- Docstrings with triple double quotes
+- 2-space indentation
+- No semicolons (Bun convention)
+- 100 char line limit
+- No JSDoc comments
 - Constants: `UPPER_SNAKE_CASE` (e.g., `SAMPLE_RATE`)
 - Classes: `PascalCase` (e.g., `AudioRecorder`)
-- Functions: `snake_case` (e.g., `transcribe()`)
-- Private methods: `_prefix`
-- Type hints using `| None` syntax (Python 3.10+)
+- Functions/Methods: `camelCase` (e.g., `startRecording()`)
+- Private fields: `private fieldName`
+- Private methods: `private methodName()`
+- Types/Interfaces: `PascalCase` (e.g., `TranscriptionResult`)
+- Type aliases: `type TypeName = ...`
+- Explicit return types for public methods
 
-```python
-def transcribe(self, audio_array) -> str | None:
-    if audio_array is None or len(audio_array) == 0:
-        return None
-    return result["text"]
+```typescript
+const SAMPLE_RATE = 16000;
+
+export class AudioRecorder {
+  private isRecording = false;
+
+  async startRecording(): Promise<void> {
+    // Implementation
+  }
+}
+```
+
+### Types
+
+- Use `type` for aliases: `type RecordingAction = "start" | "stop"`
+- Use `interface` for object shapes: `interface Config { ... }`
+- Use `| null` union for nullable returns: `Promise<string | null>`
+- Use `Partial<T>` for optional config updates
+- Type assertions with `as`: `(result as TranscriptionResult).text`
+- Check `error instanceof Error` for type narrowing
+
+```typescript
+type RecordingAction = "start" | "stop_with_newline" | "stop_without_newline";
+
+interface Config {
+  whisper: { serverUrl: string; temperature: number };
+  audio: { sampleRate: number; channels: number };
+}
+
+async transcribe(): Promise<string | null> {
+  try {
+    return result;
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error(error.message);
+    }
+    return null;
+  }
+}
 ```
 
 ### Error Handling
 
-- Print errors to `sys.stderr`, not stdout
-- Return `None` on error
-- Use context managers and `__del__` for cleanup
+- Log errors to `console.error` with `[ERROR]` prefix
+- Return `null` on error for methods that return values
+- Early return on errors/falsy values
+- No throwing exceptions in user-facing code
 
-```python
-try:
-    result = self.pipeline(audio_input)
-except Exception as e:
-    print(f"Transcription error: {e}", file=sys.stderr)
-    return None
+```typescript
+try {
+  const data = JSON.parse(configData);
+  return data;
+} catch (error) {
+  console.error(`[ERROR] Failed to parse config: ${error instanceof Error ? error.message : String(error)}`);
+  return null;
+}
+
+if (!wavBuffer) {
+  console.log("[WARNING] No audio captured");
+  return;
+}
 ```
-
-### Classes & Threading
-
-- Use docstrings for class/method descriptions
-- Static methods: `@staticmethod` decorator
-- Private methods start with underscore
-- Threads: `thread.daemon = True`, use `queue.Queue`, join with timeout
-
-### Configuration
-
-- UPPERCASE constants at module level with section comments
-
-```python
-# ─── CONFIGURATION ──────────────────────────────────────────────────────
-SAMPLE_RATE = 16000  # Required by Whisper model
-CHANNELS = 1  # Mono audio
-```
-
-### File Structure
-
-- Section comments: `# ─── SECTION NAME ───`
-- Organize into logical sections (Config, Classes, Main)
-- `if __name__ == "__main__":` guard
-- Flush stdout: `sys.stdout.flush()`
 
 ### Logging & Output
 
-- Info to stdout, errors to `sys.stderr`
-- Use `flush=True` and `\r` for progress
-- Format: `[LEVEL] message`
+- Prefix messages with `[LEVEL]`: `[INFO]`, `[WARNING]`, `[ERROR]`, `[RECORDING]`, etc.
+- Info messages to `console.log`
+- Errors to `console.error`
+- Status updates use `console.log` for clarity
 
-```python
-print("\r[TRANSCRIBING] Processing...", end="", flush=True)
-print(f"[ERROR] Transcription failed\n", file=sys.stderr)
+```typescript
+console.log("[INFO] Running. Press Ctrl+C to quit.");
+console.log("[RECORDING] Started...");
+console.error(`[ERROR] Failed to transcribe: ${error.message}`);
+```
+
+### Classes & Methods
+
+- Constructor params optional or default values
+- Private fields with `private` modifier
+- Private methods start with `private` keyword
+- No `public` modifier (public is default)
+- Callbacks use arrow functions
+- Event listeners register in constructor or setup method
+
+```typescript
+export class HotkeyManager {
+  private isRecording = false;
+  private actionHandler: ActionHandler | null = null;
+
+  constructor() {
+    this.setupListeners();
+  }
+
+  private setupListeners(): void {
+    keyboard.listener.on.down((e) => {
+      // Handler
+    });
+  }
+}
+```
+
+### Configuration
+
+- Module-level constants at top of file
+- Default config object with interface type
+- Config manager with merge logic
+- Default config path: `~/.speech-2-text/config.json`
+
+```typescript
+const DEFAULT_CONFIG_PATH = join(homedir(), ".speech-2-text", "config.json");
+
+const DEFAULT_CONFIG: Config = {
+  whisper: { serverUrl: "http://localhost:8080/inference", temperature: 0.2 },
+  audio: { sampleRate: 16000, channels: 1 },
+};
 ```
 
 ### Audio Processing
 
-- Convert to float32, normalize to [-1, 1]
-- Use `np.frombuffer()`, `np.concatenate()`
-- Handle empty/short audio edge cases
+- Use `Buffer` for binary data
+- Float32Array for audio samples
+- Resample from device rate to 16000Hz
+- Downmix stereo to mono by averaging
+- Convert Float32 to Int16 PCM
+- Add standard 44-byte WAV header
+- All processing in-memory, no file I/O
+
+```typescript
+private float32ToInt16(float32Array: Float32Array): Buffer {
+  const int16Array = new Int16Array(float32Array.length);
+  for (let i = 0; i < float32Array.length; i++) {
+    const sample = Math.max(-1, Math.min(1, float32Array[i]));
+    int16Array[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+  }
+  return Buffer.from(int16Array.buffer);
+}
+```
+
+### HTTP Requests
+
+- Use `fetch()` for HTTP requests
+- Manual multipart/form-data construction (whisper.cpp compatibility)
+- Check `response.ok` before processing
+- JSON parsing with type assertion
+- Handle network errors gracefully
 
 ---
 
 ## Dependencies
 
-Managed via `pyproject.toml`: `keyboard`, `pyaudio`, `torch`, `transformers`
-Add with: `uv add package-name`
+Managed via `ts-version/package.json`:
+- `@winput/keyboard` - Windows keyboard automation
+- `node-cpal` - Cross-platform audio capture (N-API)
+- `form-data` - Multipart form data (optional)
+
+Add with: `bun add package-name`
+
+---
+
+## Native Modules
+
+- **@winput/keyboard**: Pure TypeScript with Windows API calls via FFI
+- **node-cpal**: Neon-based N-API binding (Rust backend)
+- Both work with Bun's Node-API implementation
+- Build includes .node binaries automatically
+
+---
+
+## TypeScript Configuration
+
+- Target: ESNext
+- Module: Preserve (for Bun bundler)
+- Strict mode enabled
+- Module resolution: bundler
+- No emission (bundled by Bun)
 
 ---
 
 ## Testing
 
-No tests yet. When adding: use `pytest`, `tests/` dir, `test_*.py` files, `test_*()` functions, mock external deps.
+No tests yet. When adding: use `bun test`, `tests/` dir, `*.test.ts` files, mock external deps.
 
 ---
 
-## Python Version
+## Building Executables
 
-Minimum: 3.12. Use modern features (match, `|` union, walrus operator).
+```bash
+bun build src/index.ts --compile --outfile app.exe
+```
+
+Bundler automatically:
+- Includes Bun runtime (~90MB base)
+- Bundles all dependencies
+- Includes native .node modules
+- Creates standalone Windows executable (~111MB total)
+
+---
+
+## Runtime Notes
+
+- Bun implements 95% of Node-API, so most native modules work
+- Use `node:` prefix for built-in modules
+- No need for `package.json` "exports" field in simple apps
+- Config at `~/.speech-2-text/config.json` created automatically
