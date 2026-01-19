@@ -1,209 +1,217 @@
-# शुद्धलेखन (Shuddhalekhan) Desktop Application
+# Speech-to-Text - Whisper.cpp GPU Server
 
-Push-to-talk speech-to-text using OpenAI's Whisper Large V3 Turbo model with multi-language support and global hotkey control.
+Fast, accurate speech-to-text using Whisper Large V3 Turbo model with GPU acceleration via whisper.cpp Docker container.
 
 ## Features
 
-- 🎤 **Push-to-talk**: Press global hotkey to start recording, press again to transcribe
-- 🌍 **Multi-language**: Supports 99 languages with auto-detection
-- ⚡ **No file I/O**: Direct in-memory audio processing
-- 🚀 **High accuracy**: Whisper Large V3 Turbo optimized for quality and speed
-- 🖥️ **Windows optimized**: System tray app runs in background
-- ⌨️ **Global hotkeys**: Record from anywhere without switching windows
-- 📋 **Auto-inject**: Transcribed text is automatically inserted into active text field
-- 🔧 **Configurable**: Customize hotkeys, model, and injection method
-- 🎨 **Visual feedback**: System tray icon shows recording state
+- 🎤 **Push-to-talk**: Global hotkeys to start/stop recording
+- ⚡ **GPU accelerated**: Uses whisper.cpp with CUDA (RTX 4060+ recommended)
+- 🚀 **Direct injection**: Text typed at cursor position (no clipboard pollution)
+- 🖥️ **Windows optimized**: Native Windows keyboard automation
+- 📋 **No file I/O**: Pure in-memory audio processing
+- 🎨 **Configurable**: JSON-based configuration
+- 📦 **Standalone**: Single 111MB executable with no dependencies
 
 ## Requirements
 
-- Python 3.12+
-- Windows OS (primary), macOS/Linux (experimental)
-- Dependencies managed via `uv`:
-  ```bash
-  uv sync
-  ```
+- **Windows 10/11** (x64)
+- **NVIDIA GPU** with CUDA support (RTX 4060 or recommended)
+- **Docker Desktop** for whisper.cpp server
+- **Bun** runtime v1.0+ (or use pre-built executable)
 
 ## Installation
 
-1. **Install dependencies**:
-    ```bash
-    uv sync
-    ```
+### Option 1: Pre-built Executable (Recommended)
 
-## How to Build
+1. **Run whisper.cpp Docker server**:
+   ```powershell
+   docker start whisper-cpu-server
+   ```
 
-### Option 1: Development Run (Requires Python 3.12+)
-```bash
-# Install dependencies first
-uv sync
+2. **Run the executable**:
+   ```powershell
+   .\speech-to-text.exe
+   ```
 
-# Run GUI application
-uv run python -m app.main
+### Option 2: Build from Source
+
+1. **Install Bun**:
+   ```powershell
+   irm bun.sh/install.ps1 | iex
+   ```
+
+2. **Clone and install dependencies**:
+   ```powershell
+   cd D:\git_repos\speech-2-text\ts-version
+   bun install
+   ```
+
+3. **Run**:
+   ```powershell
+   bun run src/index.ts
+   ```
+
+## Docker Setup (One-time)
+
+### Start whisper.cpp Server
+
+```powershell
+docker run -dit --name whisper-cuda-server --entrypoint /app/build/bin/whisper-server `
+  -p 8080:8080 --gpus all `
+  -v "D:\whisper\models:/app/models" `
+  -e "LD_LIBRARY_PATH=/usr/local/cuda-13.0/lib64:/usr/local/cuda-13.0/compat/lib64" `
+  -e "GGML_CUDA=1" `
+  ghcr.io/ggml-org/whisper.cpp:main-cuda-f53dc74843e97f19f94a79241357f74ad5b691a6 `
+  --port 8080 --host 0.0.0.0 -m /app/models/ggml-large-v3-turbo.bin
 ```
 
-### Option 2: Create Installer (Recommended for Distribution)
+### Download Model
 
-#### A. Inno Setup Installer (Professional, ~50MB download)
-
-```bash
-# Build installer (requires Inno Setup Compiler - ISCC)
-python build.py installer
-
-# This creates: Output/shuddhalekhan-setup.exe (~30-50MB)
-# Includes:
-#   - shuddhalekhan.exe (your app)
-#   - check_python_312.cmd (installs Python 3.12 if needed)
-#   - Icon and desktop shortcut
-```
+```powershell
+# Download to D:\whisper\models
+curl -L -o D:\whisper\models\ggml-large-v3-turbo.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
 ```
 
-#### B. PyInstaller All-in-One (For power users, ~2.4GB)
+### Save Startup Script (Optional)
 
-```bash
-# Build single EXE with everything bundled
-python build.py pyinstaller
-
-# This creates: dist/Shuddhalekhan.exe (~2.4GB)
-# WARNING: Includes torch and transformers - huge download!
-# Recommended only for testing or users who want zero-setup
+Save as `D:\whisper\models\start-server.ps1`:
+```powershell
+docker start whisper-cuda-server
 ```
 
----
+## Building Executable
+
+```powershell
+bun build src/index.ts --compile --outfile speech-to-text.exe
+```
 
 ## Usage
 
-### Option 1: Development Run (Requires Python 3.12+)
-```bash
-# Install dependencies first
-uv sync
+### Hotkeys
 
-# Run GUI application
-uv run python -m app.main
+- **Ctrl + Win**: Start recording
+- **Ctrl**: Stop recording and add newline
+- **Alt**: Stop recording without newline
+- **Ctrl+C**: Quit application
 
-# Or use script entry
-uv run shuddhalekhan
+### Example Output
+
 ```
+============================================================
+  Speech-to-Text - Whisper.cpp GPU Server
+  Server: http://localhost:8080/inference
+============================================================
 
-### Option 2: Create Installer (Recommended for Distribution)
+READY TO TRANSCRIBE
+------------------------------------------------------------
+Hotkeys:
+  • Ctrl + Win: Start recording
+  • Ctrl: Stop recording and add newline
+  • Alt: Stop recording without newline
+------------------------------------------------------------
 
-#### A. Inno Setup Installer (Professional, ~50MB download)
+[INFO] Running. Press Ctrl+C to quit.
 
-```bash
-# Build installer (requires Inno Setup Compiler - ISCC)
-python build.py installer
-
-# This creates: Output/shuddhalekhan-setup.exe (~30-50MB)
-# Includes:
-#   - shuddhalekhan.exe (your app)
-#   - check_python_312.cmd (installs Python 3.12 if needed)
-#   - Icon and desktop shortcut
+[RECORDING] Started...
+[STOPPING] Processing...
+[TRANSCRIBING] Processing 3.5s of audio...
+[RESULT] Hello, this is a test transcription.
+[READY] Waiting for next recording...
 ```
-
-#### B. PyInstaller All-in-One (For power users, ~2.4GB)
-
-```bash
-# Build single EXE with everything bundled
-python build.py pyinstaller
-
-# This creates: dist/Shuddhalekhan.exe (~2.4GB)
-# WARNING: Includes torch and transformers - huge download!
-# Recommended only for testing or users who want zero-setup
-```
-~/.shuddhalekhan/config.yaml
-```
-~/.shuddhalekhan/config.yaml
-```
-
-You can customize:
-- Model selection (tiny, base, small, medium, large-v3-turbo)
-- Language (auto, en, es, fr, de, it, pt, nl, ru, zh, ja, ko, and more)
-- Hotkey combinations
-- Text injection method (clipboard or direct keyboard)
-- Audio settings
-
-## How It Works
-
-1. **System Tray**: App runs as system tray icon in background
-2. **Global Hotkeys**: Listen for hotkey combinations globally
-3. **Recording**: Uses `pyaudio` to capture microphone input
-4. **Processing**: Audio is normalized and converted to 16kHz mono format
-5. **Transcription**: OpenAI Whisper Large V3 Turbo model transcribes audio
-6. **Text Injection**: Transcribed text is copied to clipboard and pasted (Ctrl+V / Cmd+V) into active window
-
-## Technical Details
-
-- **Sample Rate**: 16000 Hz (required by Whisper model)
-- **Audio Format**: Float32, normalized to [-1, 1]
-- **Model**: `openai/whisper-large-v3-turbo` from Hugging Face
-- **Language**: Default auto-detection, supports 99 languages
-- **Precision**: bfloat16 (bf16) if supported, otherwise float16 or float32
-- **Text Injection**: Clipboard paste (Ctrl+V on Windows, Cmd+V on macOS)
-
-## CLI Mode (Original)
-
-The original CLI version is still available:
-
-1. **Run** CLI:
-    ```bash
-    uv run python main.py
-    ```
-
-2. **Use push-to-talk**:
-    - Press **ENTER** to start recording
-    - Press **ENTER** again to stop and transcribe
-    - Press **Ctrl+C** to quit
-
-## How It Works
-
-1. **Recording**: Uses `pyaudio` to capture microphone input directly into memory
-2. **Processing**: Audio is normalized and converted to 16kHz mono format
-3. **Transcription**: OpenAI Whisper Large V3 Turbo model transcribes the audio
-4. **Output**: Text is displayed in terminal with punctuation and capitalization
-
-## Technical Details
-
-- **Sample Rate**: 16000 Hz (required by Whisper model)
-- **Audio Format**: Float32, normalized to [-1, 1]
-- **Model**: `openai/whisper-large-v3-turbo` from Hugging Face
-- **Language**: Default English, supports auto-detection and 99 languages
 
 ## Configuration
 
-Modify constants in `main.py`:
+Configuration file at `~/.speech-2-text/config.json`:
 
-```python
-TARGET_LANGUAGE = "en"  # Change to "auto" for auto-detection
-MODEL_ID = "openai/whisper-large-v3-turbo"
+```json
+{
+  "whisper": {
+    "serverUrl": "http://localhost:8080/inference",
+    "temperature": 0.2,
+    "language": "en"
+  },
+  "audio": {
+    "sampleRate": 16000,
+    "channels": 1,
+    "minDuration": 0.3
+  },
+  "hotkeys": {
+    "start": ["ctrl", "win"],
+    "stopWithNewline": "ctrl",
+    "stopWithoutNewline": "alt"
+  }
+}
 ```
 
-Supported languages include: `en`, `es`, `fr`, `de`, `it`, `pt`, `nl`, `ru`, `zh`, `ja`, `ko`, and 88 more.
+## How It Works
+
+1. **Hotkey Listener**: Runs in background listening for global key combinations
+2. **Audio Recording**: Captures microphone input at native rate, resamples to 16kHz mono
+3. **WAV Encoding**: Creates in-memory WAV buffer with 44-byte header
+4. **Transcription**: Sends audio to whisper.cpp server via HTTP POST
+5. **Text Injection**: Uses Windows SendInput API to type text directly at cursor
+
+## Technical Details
+
+- **Sample Rate**: 16000 Hz (required by Whisper)
+- **Audio Format**: Int16 PCM, WAV format
+- **Model**: `ggml-large-v3-turbo.bin` (1.62 GB)
+- **API**: whisper.cpp HTTP inference endpoint
+- **Text Injection**: Direct keyboard input via `@winput/keyboard`
+- **Runtime**: Bun with Node-API native modules
+- **Dependencies**:
+  - `@winput/keyboard` - Windows keyboard automation
+  - `node-cpal` - Cross-platform audio capture (N-API binding)
 
 ## Troubleshooting
 
-### "No audio captured"
-- Check your microphone permissions in Windows settings
-- Verify your default input device is selected
-- Ensure microphone is not muted
+### "Docker container not running"
+```powershell
+docker ps | findstr whisper
+# If empty, start it:
+docker start whisper-cuda-server
+```
 
 ### "Transcription failed"
-- Ensure you spoke for at least 0.3 seconds
-- Check that audio quality is sufficient (low noise)
-- Verify stable internet connection for model download
+- Verify whisper.cpp server is accessible: `curl http://localhost:8080/inference`
+- Check Docker logs: `docker logs whisper-cuda-server`
+- Ensure model file exists at mounted path
 
-### Model download issues
-- Ensure stable internet connection on first run
-- Model cached locally after first download (~2.5GB)
-- Check available disk space
+### "Failed to inject text"
+- Ensure target application has text cursor active
+- Some apps may block keyboard input
+- Check console for specific error messages
 
-### PyAudio installation issues
-- If `uv add pyaudio` fails, install PortAudio headers first:
-  ```bash
-  # Windows: Usually works out of the box with pre-built wheels
-  # If issues persist, try: pip install pipwin && pipwin install pyaudio
-  ```
+### "No audio captured"
+- Verify microphone is not muted
+- Check Windows sound settings for default input device
+- Ensure app has microphone permissions
 
-## Notes
+### Model not found
+```powershell
+# Check if model exists
+ls D:\whisper\models\ggml-large-v3-turbo.bin
 
-- The model runs on GPU if CUDA is available, otherwise falls back to CPU
-- First run requires downloading the model (~2.5GB)
-- Uses default Windows audio input device (no device selection needed)
+# Download if missing
+curl -L -o D:\whisper\models\ggml-large-v3-turbo.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
+```
+
+## Architecture
+
+```
+ts-version/
+├── src/
+│   ├── index.ts              # Main entry point
+│   ├── audio-recorder.ts      # Audio capture with resampling
+│   ├── whisper-client.ts      # HTTP client for whisper.cpp
+│   ├── hotkey-manager.ts     # Global hotkey detection
+│   ├── text-injector.ts       # Windows keyboard automation
+│   └── config.ts            # JSON configuration manager
+├── package.json
+├── tsconfig.json
+└── speech-to-text.exe         # Compiled executable (111MB)
+```
+
+## License
+
+MIT
