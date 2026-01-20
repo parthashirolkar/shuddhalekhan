@@ -21,6 +21,16 @@
         "@playwright/mcp@latest"
     ],
     "enabled": true
+    },
+    "exa": {
+      "type": "local",
+      "command": ["npx", "-y", "exa-mcp-server"],
+      "enabled": true
+    },
+    "bun-docs": {
+      "type": "remote",
+      "url": "https://bun.com/docs/mcp",
+      "enabled": true
     }
   }
-  }
+}
