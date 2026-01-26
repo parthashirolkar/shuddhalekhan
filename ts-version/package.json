@@ -4,9 +4,9 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "bun build src/index.ts --compile --outfile speech-to-text.exe",
-    "build:gui": "bun build src/index.ts --compile --windows-hide-console --outfile speech-to-text.exe",
-    "build:headless": "bun build src/index.ts --compile --outfile speech-to-text.exe && powershell -ExecutionPolicy Bypass -NoProfile -File build-headless.ps1"
+    "build": "bun build src/index.ts --compile --windows-icon=./tray-icon.ico --outfile speech-to-text.exe",
+    "build:gui": "bun build src/index.ts --compile --windows-icon=./tray-icon.ico --windows-hide-console --outfile speech-to-text.exe",
+    "build:headless": "bun build src/index.ts --compile --windows-icon=./tray-icon.ico --outfile speech-to-text.exe && powershell -ExecutionPolicy Bypass -NoProfile -File build-headless.ps1"
   },
   "devDependencies": {
     "@types/bun": "latest",
