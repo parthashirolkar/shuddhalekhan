@@ -3,6 +3,10 @@ import { WhisperClient } from "./whisper-client.ts";
 import { HotkeyManager } from "./hotkey-manager.ts";
 import { ConfigManager } from "./config.ts";
 import { TextInjector } from "./text-injector.ts";
+import { TrayManager } from "./tray-manager.ts";
+import { logger } from "./logger.ts";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 const configManager = new ConfigManager();
 const config = configManager.getConfig();
@@ -12,84 +16,140 @@ const whisperClient = new WhisperClient(config.whisper.serverUrl);
 const hotkeyManager = new HotkeyManager();
 const textInjector = new TextInjector();
 
-console.log("=".repeat(60));
-console.log("  Speech-to-Text - Whisper.cpp GPU Server");
-console.log(`  Server: ${config.whisper.serverUrl}`);
-console.log("=".repeat(60));
-console.log();
+const trayManager = new TrayManager(
+  join(homedir(), ".speech-2-text", "config.json")
+);
 
-console.log("READY TO TRANSCRIBE");
-console.log("-".repeat(60));
-console.log("Hotkeys:");
-console.log("  • Ctrl + Win: Start recording");
-console.log("  • Ctrl: Stop recording and add newline");
-console.log("  • Alt: Stop recording without newline");
-console.log("-".repeat(60));
-console.log();
+async function main(): Promise<void> {
+  logger.info("=".repeat(60));
+  logger.info("Speech-to-Text - System Tray Application");
+  logger.info(`Server: ${config.whisper.serverUrl}`);
+  logger.info("=".repeat(60));
 
-hotkeyManager.onAction(async (action) => {
-  switch (action) {
-    case "start":
-      console.log("[RECORDING] Started...");
-      await audioRecorder.startRecording();
-      hotkeyManager.setRecordingState(true);
-      break;
+  trayManager.onExit(() => {
+    logger.info("Shutting down...");
+    shutdown();
+  });
 
-    case "stop_with_newline":
-      console.log("[STOPPING] Processing...");
-      hotkeyManager.setRecordingState(false);
-      await handleStopRecording(true);
-      break;
+  await audioRecorder.initialize();
+  logger.info("Audio recorder initialized");
 
-    case "stop_without_newline":
-      console.log("[STOPPING] Processing...");
-      hotkeyManager.setRecordingState(false);
-      await handleStopRecording(false);
-      break;
+  await trayManager.initialize();
+
+  hotkeyManager.onAction(async (action) => {
+    switch (action) {
+      case "start":
+        logger.recording("Started recording");
+        trayManager.setRecordingState("recording");
+        const startTime = performance.now();
+        try {
+          await audioRecorder.startRecording();
+          const elapsed = performance.now() - startTime;
+          logger.info(`[PERF] startRecording() took ${elapsed.toFixed(0)}ms`);
+          hotkeyManager.setRecordingState(true);
+        } catch (error) {
+          logger.error(`Failed to start recording: ${error}`);
+          trayManager.setRecordingState("idle");
+        }
+        break;
+
+      case "stop_with_newline":
+        logger.recording("Stopping recording with newline");
+        hotkeyManager.setRecordingState(false);
+        trayManager.setRecordingState("transcribing");
+        await handleStopRecording(true);
+        break;
+
+      case "stop_without_newline":
+        logger.recording("Stopping recording without newline");
+        hotkeyManager.setRecordingState(false);
+        trayManager.setRecordingState("transcribing");
+        await handleStopRecording(false);
+        break;
+    }
+  });
+
+  hotkeyManager.start();
+  logger.info("Hotkey listener started");
+  logger.info("Application running in background");
+
+  // Only keep stdin alive if DEBUG mode is enabled
+  if (process.env.DEBUG === "true") {
+    logger.info("DEBUG mode enabled - console will remain visible");
+    process.stdin.resume();
   }
-});
+}
 
 async function handleStopRecording(withNewline: boolean): Promise<void> {
+  const stopStart = performance.now();
   const wavBuffer = await audioRecorder.stopRecording();
+  const stopElapsed = performance.now() - stopStart;
+  logger.info(`[PERF] stopRecording() took ${stopElapsed.toFixed(0)}ms`);
 
   if (!wavBuffer) {
-    console.log("[WARNING] No audio captured");
+    logger.warning("No audio captured");
+    trayManager.setRecordingState("idle");
     return;
   }
 
   const pcmDataSize = wavBuffer.length - 44;
   const duration = pcmDataSize / (16000 * 1 * 2);
   if (duration < config.audio.minDuration) {
-    console.log(`[WARNING] Recording too short (${duration.toFixed(2)}s, min ${config.audio.minDuration}s)`);
+    logger.warning(
+      `Recording too short (${duration.toFixed(2)}s, min ${config.audio.minDuration}s)`
+    );
+    trayManager.setRecordingState("idle");
     return;
   }
 
-  console.log(`[TRANSCRIBING] Processing ${duration.toFixed(2)}s of audio...`);
+  logger.transcribing(`Processing ${duration.toFixed(2)}s of audio...`);
 
-  const text = await whisperClient.transcribe(wavBuffer, config.whisper.temperature);
+  const transcribeStart = performance.now();
+  const text = await whisperClient.transcribe(
+    wavBuffer,
+    config.whisper.temperature
+  );
+  const transcribeElapsed = performance.now() - transcribeStart;
+  logger.info(`[PERF] Transcription took ${transcribeElapsed.toFixed(0)}ms`);
+
+  trayManager.setRecordingState("idle");
 
   if (!text) {
-    console.log("[ERROR] Transcription failed");
+    logger.error("Transcription failed");
     return;
   }
 
-  console.log(`[RESULT] ${text}`);
+  logger.result(`Transcription: ${text}`);
 
-  if (withNewline) {
-    await textInjector.injectWithNewline(text);
-  } else {
-    await textInjector.inject(text);
-  }
-
-  console.log("[READY] Waiting for next recording...");
+  // Always use inject() method - never press enter
+  await textInjector.inject(text);
 }
 
-hotkeyManager.start();
-
-console.log("[INFO] Running. Press Ctrl+C to quit.\n");
+function shutdown(): void {
+  hotkeyManager.stop();
+  audioRecorder.shutdown();
+  trayManager
+    .shutdown()
+    .then(() => {
+      process.exit(0);
+    })
+    .catch((error) => {
+      logger.error(`Error during shutdown: ${error}`);
+      process.exit(1);
+    });
+}
 
 process.on("SIGINT", () => {
-  console.log("\n[INFO] Shutting down...");
-  hotkeyManager.stop();
-  process.exit(0);
+  logger.info("Received SIGINT, shutting down...");
+  shutdown();
+});
+
+process.on("SIGTERM", () => {
+  logger.info("Received SIGTERM, shutting down...");
+  shutdown();
+});
+
+main().catch((error) => {
+  logger.error(`Fatal error: ${error}`);
+  process.exit(1);
 });

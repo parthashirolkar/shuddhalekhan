@@ -18,8 +18,8 @@ export class HotkeyManager {
 
   private setupListeners(): void {
     keyboard.listener.on.down((e) => {
-      const keyName = e.key as KeyName;
-      
+      const keyName = e.key as string;
+
       if (keyName === "ctrl" || keyName === "ctrlleft" || keyName === "ctrlright") {
         this.ctrlKeyCodes.add(e.vk_code);
         this.checkStartRecording();
@@ -33,8 +33,8 @@ export class HotkeyManager {
     });
 
     keyboard.listener.on.up((e) => {
-      const keyName = e.key as KeyName;
-      
+      const keyName = e.key as string;
+
       if (keyName === "ctrl" || keyName === "ctrlleft" || keyName === "ctrlright") {
         this.ctrlKeyCodes.delete(e.vk_code);
         this.checkStopWithNewline();

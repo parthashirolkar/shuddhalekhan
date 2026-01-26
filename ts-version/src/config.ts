@@ -14,6 +14,8 @@ export interface Config {
     sampleRate: number;
     channels: number;
     minDuration: number;
+    deviceId?: number;
+    deviceName?: string;
   };
   hotkeys: {
     startRecording: string[];
