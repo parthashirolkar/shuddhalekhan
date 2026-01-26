@@ -11,6 +11,7 @@ Fast, accurate speech-to-text using Whisper Large V3 Turbo model with GPU accele
 - 📋 **No file I/O**: Pure in-memory audio processing
 - 🎨 **Configurable**: JSON-based configuration
 - 📦 **Standalone**: Single 111MB executable with no dependencies
+- 🧠 **Quantized model**: Q5_0 (574 MB) for optimal speed/quality balance
 
 ## Requirements
 
@@ -25,7 +26,7 @@ Fast, accurate speech-to-text using Whisper Large V3 Turbo model with GPU accele
 
 1. **Run whisper.cpp Docker server**:
    ```powershell
-   docker start whisper-cpu-server
+   docker start whisper-cuda-server
    ```
 
 2. **Run the executable**:
@@ -42,7 +43,8 @@ Fast, accurate speech-to-text using Whisper Large V3 Turbo model with GPU accele
 
 2. **Clone and install dependencies**:
    ```powershell
-   cd D:\git_repos\speech-2-text\ts-version
+   git clone https://github.com/parthashirolkar/speech-2-text.git
+   cd speech-2-text\ts-version
    bun install
    ```
 
@@ -53,31 +55,80 @@ Fast, accurate speech-to-text using Whisper Large V3 Turbo model with GPU accele
 
 ## Docker Setup (One-time)
 
+**Note**: This documentation uses `C:\whisper\models` for model storage. You can change this to any directory you prefer - just update the path consistently in all commands below.
+
 ### Start whisper.cpp Server
 
 ```powershell
+# Create model directory first
+New-Item -Path "C:\whisper\models" -ItemType Directory -Force
+
 docker run -dit --name whisper-cuda-server --entrypoint /app/build/bin/whisper-server `
   -p 8080:8080 --gpus all `
-  -v "D:\whisper\models:/app/models" `
+  -v "C:\whisper\models:/app/models" `
   -e "LD_LIBRARY_PATH=/usr/local/cuda-13.0/lib64:/usr/local/cuda-13.0/compat/lib64" `
   -e "GGML_CUDA=1" `
   ghcr.io/ggml-org/whisper.cpp:main-cuda-f53dc74843e97f19f94a79241357f74ad5b691a6 `
-  --port 8080 --host 0.0.0.0 -m /app/models/ggml-large-v3-turbo.bin
+  --port 8080 --host 0.0.0.0 -m /app/models/ggml-large-v3-turbo-q5_0.bin
 ```
+
+**⚠️ CRITICAL**: The `LD_LIBRARY_PATH` environment variable is required for CUDA GPU detection. Without it, the container will fall back to CPU-only mode.
 
 ### Download Model
 
+**Recommended: Q5_0 quantized model** (65% smaller, near-original quality)
 ```powershell
-# Download to D:\whisper\models
-curl -L -o D:\whisper\models\ggml-large-v3-turbo.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
+# Download Q5_0 model (574 MB)
+curl -L -o "C:\whisper\models\ggml-large-v3-turbo-q5_0.bin" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin"
+```
+
+**Alternative: F16 model** (full size, original quality)
+```powershell
+# Download F16 model (1.5 GB)
+curl -L -o "C:\whisper\models\ggml-large-v3-turbo.bin" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin"
 ```
 
 ### Save Startup Script (Optional)
 
-Save as `D:\whisper\models\start-server.ps1`:
+Save as `C:\whisper\models\start-server.ps1`:
 ```powershell
 docker start whisper-cuda-server
 ```
+
+### Switching Between Models
+
+To switch between Q5_0 and F16 models:
+
+1. **Stop and remove current container**:
+   ```powershell
+   docker stop whisper-cuda-server
+   docker rm whisper-cuda-server
+   ```
+
+2. **Start with different model**:
+   ```powershell
+   # For Q5_0 (recommended, 574 MB)
+   docker run -dit --name whisper-cuda-server --entrypoint /app/build/bin/whisper-server `
+     -p 8080:8080 --gpus all `
+     -v "C:\whisper\models:/app/models" `
+     -e "LD_LIBRARY_PATH=/usr/local/cuda-13.0/lib64:/usr/local/cuda-13.0/compat/lib64" `
+     -e "GGML_CUDA=1" `
+     ghcr.io/ggml-org/whisper.cpp:main-cuda-f53dc74843e97f19f94a79241357f74ad5b691a6 `
+     --port 8080 --host 0.0.0.0 -m /app/models/ggml-large-v3-turbo-q5_0.bin
+
+   # For F16 (full quality, 1.5 GB)
+   docker run -dit --name whisper-cuda-server --entrypoint /app/build/bin/whisper-server `
+     -p 8080:8080 --gpus all `
+     -v "C:\whisper\models:/app/models" `
+     -e "LD_LIBRARY_PATH=/usr/local/cuda-13.0/lib64:/usr/local/cuda-13.0/compat/lib64" `
+     -e "GGML_CUDA=1" `
+     ghcr.io/ggml-org/whisper.cpp:main-cuda-f53dc74843e97f19f94a79241357f74ad5b691a6 `
+     --port 8080 --host 0.0.0.0 -m /app/models/ggml-large-v3-turbo.bin
+   ```
+
+**Model Comparison**:
+- **Q5_0** (574 MB): 65% smaller, ~15-20% faster, near-original quality (recommended)
+- **F16** (1.5 GB): Full quality, larger GPU memory usage
 
 ## Building Executable
 
@@ -155,7 +206,7 @@ Configuration file at `~/.speech-2-text/config.json`:
 
 - **Sample Rate**: 16000 Hz (required by Whisper)
 - **Audio Format**: Int16 PCM, WAV format
-- **Model**: `ggml-large-v3-turbo.bin` (1.62 GB)
+- **Model**: `ggml-large-v3-turbo-q5_0.bin` (574 MB, 65% smaller than F16)
 - **API**: whisper.cpp HTTP inference endpoint
 - **Text Injection**: Direct keyboard input via `@winput/keyboard`
 - **Runtime**: Bun with Node-API native modules
@@ -171,6 +222,24 @@ docker ps | findstr whisper
 # If empty, start it:
 docker start whisper-cuda-server
 ```
+
+### GPU not detected in container
+If you see `ggml_cuda_init: failed to initialize CUDA: no CUDA-capable device is detected`:
+
+1. **Verify GPU is accessible by Docker**:
+   ```powershell
+   docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi
+   ```
+   This should show your GPU info. If it fails, reinstall NVIDIA Container Toolkit.
+
+2. **Ensure `LD_LIBRARY_PATH` is set**:
+   The Docker run command must include: `-e "LD_LIBRARY_PATH=/usr/local/cuda-13.0/lib64:/usr/local/cuda-13.0/compat/lib64"`
+
+3. **Check container logs**:
+   ```powershell
+   docker logs whisper-cuda-server
+   ```
+   You should see: `ggml_cuda_init: found 1 CUDA devices:`
 
 ### "Transcription failed"
 - Verify whisper.cpp server is accessible: `curl http://localhost:8080/inference`
@@ -189,11 +258,14 @@ docker start whisper-cuda-server
 
 ### Model not found
 ```powershell
-# Check if model exists
-ls D:\whisper\models\ggml-large-v3-turbo.bin
+# Check if model exists (Q5_0 recommended)
+ls C:\whisper\models\ggml-large-v3-turbo-q5_0.bin
 
-# Download if missing
-curl -L -o D:\whisper\models\ggml-large-v3-turbo.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
+# Download Q5_0 model if missing (574 MB)
+curl -L -o "C:\whisper\models\ggml-large-v3-turbo-q5_0.bin" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin"
+
+# Or download F16 model if you prefer full quality (1.5 GB)
+curl -L -o "C:\whisper\models\ggml-large-v3-turbo.bin" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin"
 ```
 
 ## Architecture
