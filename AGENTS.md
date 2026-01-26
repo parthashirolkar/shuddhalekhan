@@ -6,11 +6,13 @@ This file provides guidelines for agentic coding tools working in this repositor
 
 ## Project Overview
 
-TypeScript/Bun speech-to-text CLI application using whisper.cpp Docker container for GPU-accelerated transcription.
+TypeScript/Bun speech-to-text system tray application using whisper.cpp Docker container for GPU-accelerated transcription.
 - **Runtime**: Bun v1.3.5+
 - **Entry Point**: `ts-version/src/index.ts`
 - **Model**: whisper.cpp with `ggml-large-v3-turbo.bin`
 - **Native Modules**: @winput/keyboard, node-cpal (N-API bindings)
+- **UI**: Windows system tray with systray2
+- **Logging**: Centralized logger with file output to `~/.speech-2-text/app.log`
 
 ---
 
@@ -20,13 +22,19 @@ TypeScript/Bun speech-to-text CLI application using whisper.cpp Docker container
 # Install dependencies
 bun install
 
-# Run the application
+# Run the application (development mode)
 bun run src/index.ts
 
-# Build standalone executable
-bun build src/index.ts --compile --outfile speech-to-text.exe
+# Build standalone executable with console
+bun run build
 
-# Type check (if tsc added)
+# Build headless GUI executable (recommended)
+bun run build:headless
+
+# Run with debug console
+$env:DEBUG="true"; .\speech-to-text.exe
+
+# Type check
 bunx tsc --noEmit
 
 # Run tests (if test framework added)
@@ -134,16 +142,26 @@ if (!wavBuffer) {
 
 ### Logging & Output
 
-- Prefix messages with `[LEVEL]`: `[INFO]`, `[WARNING]`, `[ERROR]`, `[RECORDING]`, etc.
-- Info messages to `console.log`
-- Errors to `console.error`
-- Status updates use `console.log` for clarity
+**IMPORTANT**: Use the centralized logger module, NOT console.log/console.error.
 
 ```typescript
-console.log("[INFO] Running. Press Ctrl+C to quit.");
-console.log("[RECORDING] Started...");
-console.error(`[ERROR] Failed to transcribe: ${error.message}`);
+import { logger } from "./logger.ts"
+
+logger.info("Application started")
+logger.error("Failed to connect to server")
+logger.warning("Configuration file not found, using defaults")
+logger.recording("Started recording")
+logger.transcribing("Processing audio...")
+logger.result("Transcription: Hello world")
 ```
+
+The logger automatically:
+- Writes all logs to `~/.speech-2-text/app.log`
+- Rotates log files when they exceed 1MB
+- Outputs to console in development or when `DEBUG="true"`
+- Prefixes messages with `[LEVEL]` tags: `[INFO]`, `[ERROR]`, `[WARNING]`, `[RECORDING]`, `[TRANSCRIBING]`, `[RESULT]`, `[PERF]`
+
+**Never use** `console.log()`, `console.error()`, or `console.warn()` directly in application code.
 
 ### Classes & Methods
 
@@ -223,7 +241,8 @@ private float32ToInt16(float32Array: Float32Array): Buffer {
 Managed via `ts-version/package.json`:
 - `@winput/keyboard` - Windows keyboard automation
 - `node-cpal` - Cross-platform audio capture (N-API)
-- `form-data` - Multipart form data (optional)
+- `systray2` - Windows system tray integration
+- `form-data` - Multipart form data construction
 
 Add with: `bun add package-name`
 
@@ -257,14 +276,26 @@ No tests yet. When adding: use `bun test`, `tests/` dir, `*.test.ts` files, mock
 ## Building Executables
 
 ```bash
+# Standard build (with console window)
 bun build src/index.ts --compile --outfile app.exe
+
+# Headless build (GUI subsystem, no console)
+bun run build:headless
 ```
+
+The headless build:
+1. Builds the executable with Bun
+2. Searches for Visual Studio's `editbin.exe`
+3. Changes executable subsystem to WINDOWS (GUI mode)
+4. Silently continues if editbin is not found
 
 Bundler automatically:
 - Includes Bun runtime (~90MB base)
 - Bundles all dependencies
 - Includes native .node modules
 - Creates standalone Windows executable (~111MB total)
+
+**Important**: Copy `tray-icon.ico` to the same directory as the executable for system tray functionality.
 
 ---
 
@@ -274,3 +305,40 @@ Bundler automatically:
 - Use `node:` prefix for built-in modules
 - No need for `package.json` "exports" field in simple apps
 - Config at `~/.speech-2-text/config.json` created automatically
+- Logs written to `~/.speech-2-text/app.log` (rotated at 1MB)
+- System tray icon must be in same directory as executable
+
+## System Tray Integration
+
+The application uses `systray2` for Windows system tray functionality:
+
+```typescript
+import { SysTray } from "systray2"
+
+const systray = new SysTray({
+  menu: {
+    icon: "./tray-icon.ico",  // Relative path from working directory
+    title: "App Name",
+    tooltip: "App Description",
+    items: menuItems,
+  },
+  debug: false,
+  copyDir: true,  // CRITICAL: must be true for icon to work in compiled executable
+})
+
+// Register click handler
+systray.onClick((action) => {
+  if (action.item.click) {
+    action.item.click()
+  }
+})
+
+// Wait for initialization
+await systray.ready()
+```
+
+**Key points**:
+- Use relative path `"./tray-icon.ico"`, NOT Bun's `import ... with { type: "file" }`
+- Set `copyDir: true` or icon won't work in compiled executable
+- Icon file must be in working directory (where executable runs)
+- Update menu items dynamically with `systray.sendAction({ type: "update-item", item })`

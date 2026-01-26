@@ -10,21 +10,22 @@ export class AudioRecorder {
   private inputStream: any = null;
   private sampleRate = 16000;
   private channels = 1;
+  private streamCreated = false;
+  private discardAudio = true;
 
-  async startRecording(): Promise<void> {
-    if (this.isRecording) {
+  private firstCallbackTime: number | null = null;
+  private streamStartTime: number | null = null;
+
+  async initialize(): Promise<void> {
+    if (this.streamCreated) {
       return;
     }
 
-    this.isRecording = true;
-    this.audioBuffers = [];
-
     try {
       const inputDevice = cpal.getDefaultInputDevice();
-
       const inputConfig = cpal.getDefaultInputConfig(inputDevice.deviceId);
 
-      this.inputStream = cpal.createStream(
+      this.inputStream = (cpal as any).createStream(
         inputDevice.deviceId,
         true,
         {
@@ -33,7 +34,15 @@ export class AudioRecorder {
           sampleFormat: "f32",
         },
         (data: Float32Array) => {
+          if (this.discardAudio) {
+            return;
+          }
           if (this.isRecording) {
+            if (!this.firstCallbackTime) {
+              this.firstCallbackTime = performance.now();
+              const callbackDelay = this.firstCallbackTime - (this.streamStartTime ?? 0);
+              console.log(`[PERF] First audio callback fired after ${callbackDelay.toFixed(0)}ms`);
+            }
             this.audioBuffers.push(new Float32Array(data));
           }
         }
@@ -41,10 +50,27 @@ export class AudioRecorder {
 
       this.sampleRate = inputConfig.sampleRate;
       this.channels = inputConfig.channels;
+      this.streamCreated = true;
     } catch (error) {
-      console.error(`[ERROR] Failed to start recording: ${error}`);
-      this.isRecording = false;
+      console.error(`[ERROR] Failed to initialize audio recorder: ${error}`);
+      throw error;
     }
+  }
+
+  async startRecording(): Promise<void> {
+    if (this.isRecording) {
+      return;
+    }
+
+    if (!this.streamCreated) {
+      await this.initialize();
+    }
+
+    this.isRecording = true;
+    this.audioBuffers = [];
+    this.discardAudio = false;
+    this.streamStartTime = performance.now();
+    this.firstCallbackTime = null;
   }
 
   async stopRecording(): Promise<Buffer | null> {
@@ -53,8 +79,9 @@ export class AudioRecorder {
     }
 
     this.isRecording = false;
+    this.discardAudio = true;
 
-    if (this.inputStream) {
+    if (this.inputStream && !this.streamCreated) {
       cpal.closeStream(this.inputStream);
       this.inputStream = null;
     }
@@ -72,14 +99,14 @@ export class AudioRecorder {
       offset += buffer.length;
     }
 
-    let processedData = float32Data;
+    let processedData: Float32Array = float32Data;
 
     if (this.channels === 2) {
-      processedData = this.downmixToMono(float32Data);
+      processedData = this.downmixToMono(float32Data) as Float32Array;
     }
 
     if (this.sampleRate !== 16000) {
-      processedData = this.resample(processedData, this.sampleRate, 16000);
+      processedData = this.resample(processedData, this.sampleRate, 16000) as Float32Array;
     }
 
     const int16Data = this.float32ToInt16(processedData);
@@ -87,26 +114,35 @@ export class AudioRecorder {
     return this.addWavHeader(int16Data, 16000, 1);
   }
 
-  private downmixToMono(stereoData: Float32Array): Float32Array {
-    const monoData = new Float32Array(stereoData.length / 2);
-    for (let i = 0; i < monoData.length; i++) {
-      monoData[i] = (stereoData[i * 2] + stereoData[i * 2 + 1]) / 2;
+  shutdown(): void {
+    if (this.inputStream && this.streamCreated) {
+      cpal.closeStream(this.inputStream);
+      this.inputStream = null;
+      this.streamCreated = false;
     }
+  }
+
+  private downmixToMono(stereoData: Float32Array) {
+    const monoData = Float32Array.from({ length: stereoData.length / 2 }, (_, i) => {
+      const left = stereoData[i * 2] ?? 0;
+      const right = stereoData[i * 2 + 1] ?? 0;
+      return (left + right) / 2;
+    });
     return monoData;
   }
 
-  private resample(data: Float32Array, fromRate: number, toRate: number): Float32Array {
+  private resample(data: Float32Array, fromRate: number, toRate: number) {
     const ratio = fromRate / toRate;
     const outputLength = Math.floor(data.length / ratio);
-    const resampled = new Float32Array(outputLength);
-
-    for (let i = 0; i < outputLength; i++) {
+    const resampled = Float32Array.from({ length: outputLength }, (_, i) => {
       const index = i * ratio;
       const lower = Math.floor(index);
       const upper = Math.min(lower + 1, data.length - 1);
       const fraction = index - lower;
-      resampled[i] = data[lower] * (1 - fraction) + data[upper] * fraction;
-    }
+      const lowerValue = data[lower] ?? 0;
+      const upperValue = data[upper] ?? 0;
+      return lowerValue * (1 - fraction) + upperValue * fraction;
+    });
 
     return resampled;
   }
@@ -115,7 +151,7 @@ export class AudioRecorder {
     const int16Array = new Int16Array(float32Array.length);
 
     for (let i = 0; i < float32Array.length; i++) {
-      const sample = Math.max(-1, Math.min(1, float32Array[i]));
+      const sample = Math.max(-1, Math.min(1, float32Array[i] ?? 0));
       int16Array[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
     }
 
