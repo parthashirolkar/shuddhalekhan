@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Windows speech-to-text CLI application using whisper.cpp in Docker for GPU-accelerated transcription. The app provides push-to-talk functionality with global hotkeys and types text directly at the cursor position via Windows keyboard automation.
+A Windows speech-to-text system tray application using whisper.cpp in Docker for GPU-accelerated transcription. The app provides push-to-talk functionality with global hotkeys and types text directly at the cursor position via Windows keyboard automation. Runs as a headless GUI application with system tray icon and logging.
 
 **Runtime**: Bun v1.3.5+ | **Entry Point**: `ts-version/src/index.ts` | **Model**: whisper.cpp ggml-large-v3-turbo.bin
 
@@ -14,21 +14,32 @@ A Windows speech-to-text CLI application using whisper.cpp in Docker for GPU-acc
 # Install dependencies
 cd ts-version && bun install
 
-# Run the application
+# Run the application (development mode)
 bun run src/index.ts
 
-# Build standalone executable (111MB)
-bun build src/index.ts --compile --outfile speech-to-text.exe
+# Build standalone executable with console (for testing)
+bun run build
+
+# Build headless GUI executable (recommended for production)
+bun run build:headless
+
+# Run with debug console enabled
+$env:DEBUG="true"; .\speech-to-text.exe
 
 # Type check
 bunx tsc --noEmit
-
-# Run tests (when implemented)
-bun test tests/*.test.ts
-
-# Run single test
-bun test tests/*.test.ts --test-name-pattern "test_function_name"
 ```
+
+## Build Scripts
+
+- `bun run build` - Standard build with console window
+- `bun run build:headless` - GUI subsystem build using editbin (no console window)
+
+The headless build uses `build-headless.ps1` which:
+1. Builds the executable with Bun
+2. Searches for Visual Studio's `editbin.exe`
+3. Changes executable subsystem to WINDOWS (GUI mode)
+4. Silently continues if editbin is not found
 
 ## Architecture
 
@@ -41,15 +52,23 @@ ts-version/src/
 ├── audio-recorder.ts     # Audio capture, resampling, WAV encoding
 ├── whisper-client.ts     # HTTP client to whisper.cpp Docker server
 ├── text-injector.ts      # Windows keyboard automation via @winput/keyboard
-└── config.ts            # JSON config manager (~/.speech-2-text/config.json)
+├── config.ts            # JSON config manager (~/.speech-2-text/config.json)
+├── logger.ts            # Centralized logging to file and console
+└── tray-manager.ts      # Windows system tray integration with systray2
 ```
 
 **Data Flow**: Hotkey Manager → Audio Recorder → WAV Buffer → Whisper Client → Text Injector
 
-The main event loop (`index.ts:30-50`) registers an action callback that switches on recording actions:
-- `start`: Initiates audio capture via node-cpal
+**UI Flow**: User interacts via:
+- Global hotkeys (Ctrl+Win to record)
+- System tray icon (right-click menu)
+
+The main event loop (`index.ts:39-70`) registers an action callback that switches on recording actions:
+- `start`: Initiates audio capture via node-cpal, updates tray to "Recording..."
 - `stop_with_newline`: Stops recording, transcribes, injects text + newline
 - `stop_without_newline`: Stops recording, transcribes, injects text only
+
+All events update the system tray status and log to `~/.speech-2-text/app.log`.
 
 ## Audio Processing Pipeline
 
@@ -102,8 +121,29 @@ HTTP endpoint: `POST http://localhost:8080/inference` with multipart/form-data c
 - **Imports**: Group as `node:` (stdlib), third-party, local with blank lines between; use `node:` prefix for built-ins
 - **Naming**: `PascalCase` classes/types, `camelCase` functions, `UPPER_SNAKE_CASE` constants
 - **Private members**: `private field` prefix (no underscore)
-- **Logging**: Prefix with `[LEVEL]` - `[INFO]`, `[ERROR]`, `[WARNING]`, `[RECORDING]`, `[TRANSCRIBING]`, `[RESULT]`
-- **Error handling**: Return `null` on failure, log to `console.error`, no throwing in user-facing code
+- **Logging**: Use centralized `logger` from `./logger.ts`:
+  - `logger.info()` for general info
+  - `logger.error()` for errors
+  - `logger.warning()` for warnings
+  - `logger.recording()` for recording events
+  - `logger.transcribing()` for transcription events
+  - `logger.result()` for results
+- **Error handling**: Return `null` on failure, log via `logger.error()`, no throwing in user-facing code
+
+## Logging
+
+All logging is centralized in `logger.ts`:
+- **File output**: `~/.speech-2-text/app.log` (rotated when > 1MB)
+- **Console output**: In development or when `DEBUG="true"` is set
+- **Log levels**: INFO, WARNING, ERROR, RECORDING, TRANSCRIBING, RESULT, PERF
+
+```typescript
+import { logger } from "./logger.ts"
+
+logger.info("Application started")
+logger.error("Failed to connect to server")
+logger.recording("Started recording")
+```
 
 ## Configuration
 
@@ -129,11 +169,41 @@ Config file at `~/.speech-2-text/config.json` (auto-created with defaults):
 }
 ```
 
+Logs are written to `~/.speech-2-text/app.log`.
+
+## System Tray
+
+The application runs as a Windows GUI application with a system tray icon:
+- **Icon**: `ts-version/tray-icon.ico` (must be in same directory as executable)
+- **Library**: systray2 with `copyDir: true` for icon bundling
+- **Menu items**: Status, Edit Config, Open Config Folder, View Logs, About, Exit
+- **Dynamic updates**: Status changes during recording/transcription
+- **Exit handling**: Clean shutdown via tray menu or Ctrl+C (development only)
+
+**Note**: When building for production, ensure `tray-icon.ico` is copied alongside the executable. The `build:headless` script does not automatically copy the icon file.
+
 ## TypeScript Configuration
 
 - Target: ESNext, Module: Preserve (for Bun bundler)
 - Strict mode enabled with `noUncheckedIndexedAccess`
 - Module resolution: `bundler`
 - No emission (handled by Bun compile)
+
+## Dependencies
+
+Key dependencies (from `ts-version/package.json`):
+- `@winput/keyboard` - Windows keyboard automation (global hotkeys, text injection)
+- `node-cpal` - Cross-platform audio capture via N-API
+- `systray2` - Windows system tray integration
+- `form-data` - Multipart form data construction for HTTP requests
+
+## Debugging
+
+Enable console output for debugging:
+```powershell
+$env:DEBUG="true"; .\speech-to-text.exe
+```
+
+Logs are always written to `~/.speech-2-text/app.log` regardless of DEBUG setting.
 
 See `AGENTS.md` for comprehensive code guidelines.
