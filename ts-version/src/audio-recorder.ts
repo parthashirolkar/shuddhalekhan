@@ -16,13 +16,17 @@ export class AudioRecorder {
   private firstCallbackTime: number | null = null;
   private streamStartTime: number | null = null;
 
-  async initialize(): Promise<void> {
+  async initialize(deviceId?: string): Promise<void> {
     if (this.streamCreated) {
       return;
     }
 
     try {
-      const inputDevice = cpal.getDefaultInputDevice();
+      // Use provided device ID or fall back to default
+      const inputDevice = deviceId
+        ? { deviceId, name: deviceId }
+        : cpal.getDefaultInputDevice();
+
       const inputConfig = cpal.getDefaultInputConfig(inputDevice.deviceId);
 
       this.inputStream = (cpal as any).createStream(
@@ -120,6 +124,17 @@ export class AudioRecorder {
       this.inputStream = null;
       this.streamCreated = false;
     }
+  }
+
+  async reinitialize(deviceId?: string): Promise<void> {
+    // Shutdown existing stream
+    this.shutdown();
+
+    // Wait a bit for cleanup
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Reinitialize with new device
+    await this.initialize(deviceId);
   }
 
   private downmixToMono(stereoData: Float32Array) {

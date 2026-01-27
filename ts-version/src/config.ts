@@ -14,7 +14,7 @@ export interface Config {
     sampleRate: number;
     channels: number;
     minDuration: number;
-    deviceId?: number;
+    deviceId?: string;
     deviceName?: string;
   };
   hotkeys: {
