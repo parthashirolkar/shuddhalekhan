@@ -2,8 +2,11 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { logger } from "./logger.ts";
+import { AudioDeviceManager, type AudioDevice } from "./audio-device-manager.ts";
+import { AudioRecorder } from "./audio-recorder.ts";
+import { tmpdir } from "node:os";
 
 // @ts-ignore - CommonJS module
 const { default: SysTray } = require("systray2");
@@ -20,15 +23,31 @@ interface MenuItemClickable {
   click?: () => void;
 }
 
+interface Config {
+  audio: {
+    deviceId?: string;
+    deviceName?: string;
+    [key: string]: any;
+  };
+  [key: string]: any;
+}
+
 export class TrayManager {
   private systray: any = null;
   private recordingState: RecordingState = "idle";
   private configPath: string;
   private onExitCallback?: () => void;
   private statusItem: MenuItemClickable;
+  private audioDeviceManager: AudioDeviceManager;
+  private config: Config;
+  private audioRecorder?: AudioRecorder;
 
-  constructor(configPath: string) {
+  constructor(configPath: string, audioRecorder?: AudioRecorder) {
     this.configPath = configPath;
+    this.audioDeviceManager = new AudioDeviceManager();
+    this.config = this.loadConfig();
+    this.audioRecorder = audioRecorder;
+
     this.statusItem = {
       title: "🎤 Ready to record",
       tooltip: "Ready to record",
@@ -37,9 +56,39 @@ export class TrayManager {
     };
   }
 
+  private loadConfig(): Config {
+    try {
+      const configData = readFileSync(this.configPath, "utf-8");
+      return JSON.parse(configData);
+    } catch (error) {
+      logger.error(`Failed to load config: ${error}`);
+      return { audio: {} };
+    }
+  }
+
+  private saveConfig(config: Config): void {
+    try {
+      // Write config atomically
+      const configData = JSON.stringify(config, null, 2);
+      writeFileSync(this.configPath, configData, "utf-8");
+      this.config = config;
+      logger.info("Config saved");
+    } catch (error) {
+      logger.error(`Failed to save config: ${error}`);
+    }
+  }
+
   async initialize(): Promise<void> {
     const menuItems: MenuItemClickable[] = [
       this.statusItem,
+      { title: "-", tooltip: "", checked: false, enabled: false },
+      {
+        title: "Choose Input Device...",
+        tooltip: "Select audio input device",
+        checked: false,
+        enabled: true,
+        click: () => this.handleChooseDevice(),
+      },
       { title: "-", tooltip: "", checked: false, enabled: false },
       {
         title: "Edit Config File",
@@ -66,7 +115,7 @@ export class TrayManager {
       { title: "-", tooltip: "", checked: false, enabled: false },
       {
         title: "About",
-        tooltip: "About Speech-to-Text",
+        tooltip: "About शुद्धलेखन (Shuddhlekhan)",
         checked: false,
         enabled: true,
         click: () => this.handleAbout(),
@@ -83,8 +132,8 @@ export class TrayManager {
     this.systray = new SysTray({
       menu: {
         icon: this.getIcon(),
-        title: "Speech-to-Text",
-        tooltip: "Speech-to-Text - Ready",
+        title: "शुद्धलेखन (Shuddhlekhan)",
+        tooltip: "शुद्धलेखन (Shuddhlekhan) - Ready",
         items: menuItems,
       },
       debug: false,
@@ -119,6 +168,145 @@ export class TrayManager {
         return "⏳ Transcribing...";
       default:
         return "🎤 Ready to record";
+    }
+  }
+
+  private async handleChooseDevice(): Promise<void> {
+    try {
+      const devices = this.audioDeviceManager.getInputDevices();
+
+      if (devices.length === 0) {
+        await this.showNotification("No Devices", "No audio input devices found");
+        return;
+      }
+
+      const currentDeviceId = this.config.audio.deviceId;
+
+      // Create PowerShell script
+      const deviceItems = devices
+        .map(
+          (d) => `        $listBox.Items.Add('${d.name.replace(/'/g, "''")}${
+            d.isDefault ? " (Default)" : ""
+          }') | Out-Null`
+        )
+        .join("\n");
+
+      const selectIndex =
+        currentDeviceId && devices.findIndex((d) => d.id === currentDeviceId) >= 0
+          ? `        $listBox.SelectedIndex = ${devices.findIndex(
+              (d) => d.id === currentDeviceId
+            )}`
+          : "";
+
+      const psScript = `Add-Type -AssemblyName System.Windows.Forms
+$form = New-Object System.Windows.Forms.Form
+$form.Text = 'Select Audio Input Device'
+$form.Size = New-Object System.Drawing.Size(400, 300)
+$form.StartPosition = 'CenterScreen'
+$form.FormBorderStyle = 'FixedDialog'
+$form.MaximizeBox = $false
+$form.Topmost = $true
+
+$label = New-Object System.Windows.Forms.Label
+$label.Location = New-Object System.Drawing.Point(10, 10)
+$label.Size = New-Object System.Drawing.Size(380, 20)
+$label.Text = 'Choose an audio input device:'
+$form.Controls.Add($label)
+
+$listBox = New-Object System.Windows.Forms.ListBox
+$listBox.Location = New-Object System.Drawing.Point(10, 40)
+$listBox.Size = New-Object System.Drawing.Size(360, 150)
+$listBox.SelectionMode = 'One'
+
+${deviceItems}
+
+${selectIndex}
+
+$form.Controls.Add($listBox)
+
+$okButton = New-Object System.Windows.Forms.Button
+$okButton.Location = New-Object System.Drawing.Point(200, 210)
+$okButton.Size = New-Object System.Drawing.Size(75, 23)
+$okButton.Text = 'OK'
+$okButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
+$form.Controls.Add($okButton)
+
+$cancelButton = New-Object System.Windows.Forms.Button
+$cancelButton.Location = New-Object System.Drawing.Point(290, 210)
+$cancelButton.Size = New-Object System.Drawing.Size(75, 23)
+$cancelButton.Text = 'Cancel'
+$cancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+$form.Controls.Add($cancelButton)
+
+$form.AcceptButton = $okButton
+$form.CancelButton = $cancelButton
+
+$result = $form.ShowDialog()
+if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+  Write-Output $listBox.SelectedIndex
+} else {
+  Write-Output -1
+}
+`;
+
+      // Write script to temp file
+      const tempScriptPath = join(tmpdir(), `device-select-${Date.now()}.ps1`);
+      writeFileSync(tempScriptPath, psScript, "utf-8");
+
+      try {
+        const { stdout, stderr } = await execAsync(
+          `powershell -ExecutionPolicy Bypass -File "${tempScriptPath}"`,
+          { timeout: 30000 }
+        );
+
+        const selectedIndex = parseInt(stdout.trim(), 10);
+
+        if (selectedIndex >= 0 && selectedIndex < devices.length) {
+          const selectedDevice = devices[selectedIndex];
+          if (selectedDevice) {
+            await this.selectDevice(selectedDevice);
+          }
+        }
+      } finally {
+        // Clean up temp file
+        try {
+          unlinkSync(tempScriptPath);
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+      }
+    } catch (error) {
+      logger.error(`Failed to show device selection dialog: ${error}`);
+    }
+  }
+
+  private async selectDevice(device: AudioDevice): Promise<void> {
+    try {
+      logger.info(`Selecting audio device: ${device.name}`);
+
+      // Update config
+      this.config.audio.deviceId = device.id;
+      this.config.audio.deviceName = device.name;
+      this.saveConfig(this.config);
+
+      // Reinitialize audio recorder with new device
+      if (this.audioRecorder) {
+        await this.audioRecorder.reinitialize(device.id);
+        logger.info(`Audio recorder reinitialized with device: ${device.name}`);
+      }
+
+      await this.showNotification(
+        "Device Changed",
+        `Now using: ${device.name}`
+      );
+
+      logger.result(`Audio device changed to: ${device.name}`);
+    } catch (error) {
+      logger.error(`Failed to change device: ${error}`);
+      await this.showNotification(
+        "Error",
+        "Failed to change audio device. See logs."
+      );
     }
   }
 
@@ -186,8 +374,8 @@ export class TrayManager {
 
   private async handleAbout(): Promise<void> {
     await this.showNotification(
-      "Speech-to-Text",
-      "Windows Speech-to-Text with Whisper.cpp\n\nVersion: 1.0.0\n\nPress Ctrl+Win to start recording"
+      "शुद्धलेखन (Shuddhlekhan)",
+      "Windows शुद्धलेखन (Shuddhlekhan) with Whisper.cpp\n\nVersion: 1.0.0\n\nPress Ctrl+Win to start recording"
     );
   }
 

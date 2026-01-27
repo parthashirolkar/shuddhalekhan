@@ -17,12 +17,13 @@ const hotkeyManager = new HotkeyManager();
 const textInjector = new TextInjector();
 
 const trayManager = new TrayManager(
-  join(homedir(), ".speech-2-text", "config.json")
+  join(homedir(), ".speech-2-text", "config.json"),
+  audioRecorder
 );
 
 async function main(): Promise<void> {
   logger.info("=".repeat(60));
-  logger.info("Speech-to-Text - System Tray Application");
+  logger.info("शुद्धलेखन (Shuddhlekhan) - System Tray Application");
   logger.info(`Server: ${config.whisper.serverUrl}`);
   logger.info("=".repeat(60));
 
@@ -31,8 +32,17 @@ async function main(): Promise<void> {
     shutdown();
   });
 
-  await audioRecorder.initialize();
-  logger.info("Audio recorder initialized");
+  // Initialize audio recorder with saved device or default
+  const savedDeviceId = config.audio.deviceId;
+  if (savedDeviceId) {
+    await audioRecorder.initialize(savedDeviceId);
+    logger.info(
+      `Audio recorder initialized with device: ${config.audio.deviceName || savedDeviceId}`
+    );
+  } else {
+    await audioRecorder.initialize();
+    logger.info("Audio recorder initialized with default device");
+  }
 
   await trayManager.initialize();
 

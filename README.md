@@ -1,10 +1,11 @@
-# Speech-to-Text - Whisper.cpp GPU Server
+# शुद्धलेखन (Shuddhlekhan)
 
 Fast, accurate speech-to-text using Whisper Large V3 Turbo model with GPU acceleration via whisper.cpp Docker container.
 
 ## Features
 
 - 🎤 **Push-to-talk**: Global hotkeys to start/stop recording
+- 🎧 **Device selection**: Choose from multiple audio input devices via system tray
 - ⚡ **GPU accelerated**: Uses whisper.cpp with CUDA (RTX 4060+ recommended)
 - 🚀 **Direct injection**: Text typed at cursor position (no clipboard pollution)
 - 🖥️ **Windows optimized**: Native Windows keyboard automation
@@ -145,11 +146,23 @@ bun build src/index.ts --compile --outfile speech-to-text.exe
 - **Alt**: Stop recording without newline
 - **Ctrl+C**: Quit application
 
+### System Tray Menu
+
+Right-click the system tray icon to access:
+- **Choose Input Device...**: Select from available audio input devices
+- **Edit Config File**: Open configuration in default editor
+- **Open Config Folder**: Open config directory in File Explorer
+- **View Logs**: Open application log file
+- **About**: Show app information
+- **Exit**: Close the application
+
+Device selection is automatically persisted and restored on application restart.
+
 ### Example Output
 
 ```
 ============================================================
-  Speech-to-Text - Whisper.cpp GPU Server
+  शुद्धलेखन (Shuddhlekhan) - Speech-to-Text
   Server: http://localhost:8080/inference
 ============================================================
 
@@ -184,7 +197,9 @@ Configuration file at `~/.speech-2-text/config.json`:
   "audio": {
     "sampleRate": 16000,
     "channels": 1,
-    "minDuration": 0.3
+    "minDuration": 0.3,
+    "deviceId": "",
+    "deviceName": ""
   },
   "hotkeys": {
     "start": ["ctrl", "win"],
@@ -273,15 +288,18 @@ curl -L -o "C:\whisper\models\ggml-large-v3-turbo.bin" "https://huggingface.co/g
 ```
 ts-version/
 ├── src/
-│   ├── index.ts              # Main entry point
-│   ├── audio-recorder.ts      # Audio capture with resampling
-│   ├── whisper-client.ts      # HTTP client for whisper.cpp
-│   ├── hotkey-manager.ts     # Global hotkey detection
-│   ├── text-injector.ts       # Windows keyboard automation
-│   └── config.ts            # JSON configuration manager
+│   ├── index.ts                # Main entry point
+│   ├── audio-recorder.ts        # Audio capture with resampling
+│   ├── audio-device-manager.ts  # Audio device enumeration
+│   ├── whisper-client.ts        # HTTP client for whisper.cpp
+│   ├── hotkey-manager.ts       # Global hotkey detection
+│   ├── text-injector.ts         # Windows keyboard automation
+│   ├── tray-manager.ts          # System tray integration
+│   ├── config.ts              # JSON configuration manager
+│   └── logger.ts              # Centralized logging
 ├── package.json
 ├── tsconfig.json
-└── speech-to-text.exe         # Compiled executable (111MB)
+└── speech-to-text.exe           # Compiled executable (111MB)
 ```
 
 ## License

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Windows speech-to-text system tray application using whisper.cpp in Docker for GPU-accelerated transcription. The app provides push-to-talk functionality with global hotkeys and types text directly at the cursor position via Windows keyboard automation. Runs as a headless GUI application with system tray icon and logging.
+**शुद्धलेखन (Shuddhlekhan)** - A Windows speech-to-text system tray application using whisper.cpp in Docker for GPU-accelerated transcription. The app provides push-to-talk functionality with global hotkeys and types text directly at the cursor position via Windows keyboard automation. Runs as a headless GUI application with system tray icon and logging.
 
 **Runtime**: Bun v1.3.5+ | **Entry Point**: `ts-version/src/index.ts` | **Model**: whisper.cpp ggml-large-v3-turbo.bin
 
@@ -47,14 +47,15 @@ The application follows a modular, class-based architecture with clear separatio
 
 ```
 ts-version/src/
-├── index.ts              # Main orchestrator - wires modules together
-├── hotkey-manager.ts     # Global hotkey detection via @winput/keyboard
-├── audio-recorder.ts     # Audio capture, resampling, WAV encoding
-├── whisper-client.ts     # HTTP client to whisper.cpp Docker server
-├── text-injector.ts      # Windows keyboard automation via @winput/keyboard
-├── config.ts            # JSON config manager (~/.speech-2-text/config.json)
-├── logger.ts            # Centralized logging to file and console
-└── tray-manager.ts      # Windows system tray integration with systray2
+├── index.ts                 # Main orchestrator - wires modules together
+├── hotkey-manager.ts        # Global hotkey detection via @winput/keyboard
+├── audio-recorder.ts        # Audio capture, resampling, WAV encoding
+├── audio-device-manager.ts  # Audio device enumeration via node-cpal
+├── whisper-client.ts        # HTTP client to whisper.cpp Docker server
+├── text-injector.ts         # Windows keyboard automation via @winput/keyboard
+├── config.ts              # JSON config manager (~/.speech-2-text/config.json)
+├── logger.ts              # Centralized logging to file and console
+└── tray-manager.ts        # Windows system tray integration with systray2
 ```
 
 **Data Flow**: Hotkey Manager → Audio Recorder → WAV Buffer → Whisper Client → Text Injector
@@ -74,16 +75,31 @@ All events update the system tray status and log to `~/.speech-2-text/app.log`.
 
 All audio processing is in-memory - no file I/O:
 
-1. **Capture**: node-cpal records at device native rate (typically 48kHz)
-2. **Resample**: Linear interpolation to 16kHz (Whisper requirement)
-3. **Downmix**: Stereo → mono by averaging channels
-4. **Encode**: Float32 samples → Int16 PCM, add 44-byte WAV header
-5. **Transmit**: Multipart/form-data POST to whisper.cpp HTTP endpoint
+1. **Device Selection**: Optional device ID passed to `initialize()` or defaults to system device
+2. **Capture**: node-cpal records at device native rate (typically 48kHz stereo)
+3. **Resample**: Linear interpolation to 16kHz (Whisper requirement)
+4. **Downmix**: Stereo → mono by averaging channels
+5. **Encode**: Float32 samples → Int16 PCM, add 44-byte WAV header
+6. **Transmit**: Multipart/form-data POST to whisper.cpp HTTP endpoint
 
-Key constants in `audio-recorder.ts:3-5`:
-- `TARGET_SAMPLE_RATE = 16000`
-- `TARGET_CHANNELS = 1`
-- `BYTES_PER_SAMPLE = 2`
+Key constants in `audio-recorder.ts:4-6`:
+- `SAMPLE_RATE = 16000`
+- `CHANNELS = 1`
+- Implicit: 2 bytes per sample (Int16 PCM)
+
+### Audio Device Management
+
+The `AudioDeviceManager` class (`audio-device-manager.ts`) handles device enumeration:
+- Uses node-cpal's `getDevices()` API to list all audio devices
+- Filters for input devices (capture devices)
+- Returns `AudioDevice[]` with `{ id, name, isDefault }` structure
+- Validates device IDs before selection
+
+Device switching flow:
+1. User selects device from system tray dialog (PowerShell Windows Forms)
+2. `TrayManager.selectDevice()` updates config and calls `audioRecorder.reinitialize(deviceId)`
+3. `AudioRecorder.reinitialize()` shuts down existing stream and creates new one with selected device
+4. New device is persisted to config for next startup
 
 ## Native Modules
 
@@ -97,6 +113,8 @@ Two Node-API bindings are used:
 - **node-cpal**: Neon-based Rust binding for cross-platform audio capture
   - Provides `CpalHost` and `CpalStream` classes
   - Requires Bun's N-API support
+  - **Device enumeration**: Use `(cpal as any).getDevices()` to list all audio devices
+  - **Device selection**: Pass device ID to `cpal.createStream(deviceId, ...)` for specific device
 
 Both are automatically bundled when building the executable.
 
@@ -159,7 +177,9 @@ Config file at `~/.speech-2-text/config.json` (auto-created with defaults):
   "audio": {
     "sampleRate": 16000,
     "channels": 1,
-    "minDuration": 0.3
+    "minDuration": 0.3,
+    "deviceId": "",
+    "deviceName": ""
   },
   "hotkeys": {
     "start": ["ctrl", "win"],
@@ -169,6 +189,10 @@ Config file at `~/.speech-2-text/config.json` (auto-created with defaults):
 }
 ```
 
+- `deviceId` and `deviceName`: Persist selected audio input device (optional)
+- Empty `deviceId` means use system default device
+- Device selection available via system tray menu
+
 Logs are written to `~/.speech-2-text/app.log`.
 
 ## System Tray
@@ -176,11 +200,27 @@ Logs are written to `~/.speech-2-text/app.log`.
 The application runs as a Windows GUI application with a system tray icon:
 - **Icon**: `ts-version/tray-icon.ico` (must be in same directory as executable)
 - **Library**: systray2 with `copyDir: true` for icon bundling
-- **Menu items**: Status, Edit Config, Open Config Folder, View Logs, About, Exit
+- **Menu items**:
+  - Status (dynamic: "Ready to record", "Recording...", "Transcribing...")
+  - Choose Input Device... (opens dialog to select audio device)
+  - Edit Config File
+  - Open Config Folder
+  - View Logs
+  - About
+  - Exit
 - **Dynamic updates**: Status changes during recording/transcription
+- **Device switching**: TrayManager receives AudioRecorder reference and calls `reinitialize(deviceId)` when device changes
 - **Exit handling**: Clean shutdown via tray menu or Ctrl+C (development only)
 
 **Note**: When building for production, ensure `tray-icon.ico` is copied alongside the executable. The `build:headless` script does not automatically copy the icon file.
+
+### PowerShell Dialogs
+
+For device selection and notifications, the app uses PowerShell with Windows Forms:
+- Scripts are written to temp files (e.g., `%TEMP%/device-select-<timestamp>.ps1`)
+- Executed with `powershell -ExecutionPolicy Bypass -File <path>`
+- Cleaned up after execution
+- Dialogs have `$form.Topmost = $true` to appear above other windows
 
 ## TypeScript Configuration
 
