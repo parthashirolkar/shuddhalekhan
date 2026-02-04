@@ -32,16 +32,20 @@ async function main(): Promise<void> {
     shutdown();
   });
 
-  // Initialize audio recorder with saved device or default
   const savedDeviceId = config.audio.deviceId;
-  if (savedDeviceId) {
-    await audioRecorder.initialize(savedDeviceId);
-    logger.info(
-      `Audio recorder initialized with device: ${config.audio.deviceName || savedDeviceId}`
-    );
-  } else {
-    await audioRecorder.initialize();
-    logger.info("Audio recorder initialized with default device");
+  const result = await audioRecorder.initialize(savedDeviceId);
+
+  if (result.usedFallback && result.deviceId && result.deviceName) {
+    logger.info("Saved device was unavailable, updating config with working device...");
+    configManager.updateConfig({
+      audio: {
+        ...config.audio,
+        deviceId: result.deviceId,
+        deviceName: result.deviceName
+      }
+    });
+    configManager.saveConfig();
+    logger.info(`Config updated: ${result.deviceName}`);
   }
 
   await trayManager.initialize();

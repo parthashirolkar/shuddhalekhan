@@ -1,8 +1,16 @@
 import { Buffer } from "node:buffer";
 import * as cpal from "node-cpal";
+import { logger } from "./logger.ts";
 
 const SAMPLE_RATE = 16000;
 const CHANNELS = 1;
+
+export interface AudioRecorderResult {
+  success: boolean;
+  deviceId: string | null;
+  deviceName: string | null;
+  usedFallback: boolean;
+}
 
 export class AudioRecorder {
   private isRecording = false;
@@ -16,18 +24,54 @@ export class AudioRecorder {
   private firstCallbackTime: number | null = null;
   private streamStartTime: number | null = null;
 
-  async initialize(deviceId?: string): Promise<void> {
+  async initialize(deviceId?: string): Promise<AudioRecorderResult> {
     if (this.streamCreated) {
-      return;
+      return {
+        success: true,
+        deviceId: null,
+        deviceName: null,
+        usedFallback: false
+      };
     }
 
-    try {
-      // Use provided device ID or fall back to default
-      const inputDevice = deviceId
-        ? { deviceId, name: deviceId }
-        : cpal.getDefaultInputDevice();
+    if (deviceId) {
+      try {
+        const result = await this.initializeWithDevice(deviceId);
+        logger.info(`Initialized with selected device: ${result.deviceName}`);
+        return {
+          success: true,
+          deviceId: result.deviceId,
+          deviceName: result.deviceName,
+          usedFallback: false
+        };
+      } catch (error) {
+        logger.warning(`Failed to initialize with device '${deviceId}': ${error instanceof Error ? error.message : String(error)}`);
+        logger.info("Falling back to default audio device...");
+      }
+    }
 
-      const inputConfig = cpal.getDefaultInputConfig(inputDevice.deviceId);
+    const defaultDevice = cpal.getDefaultInputDevice();
+    try {
+      const result = await this.initializeWithDevice(defaultDevice.deviceId);
+      logger.info(`Initialized with default device: ${result.deviceName}`);
+      return {
+        success: true,
+        deviceId: result.deviceId,
+        deviceName: result.deviceName,
+        usedFallback: !!deviceId
+      };
+    } catch (error) {
+      logger.error(`Failed to initialize with default device: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
+
+  private async initializeWithDevice(deviceId: string): Promise<{ deviceId: string; deviceName: string }> {
+    const inputDevice = deviceId
+      ? { deviceId, name: deviceId }
+      : cpal.getDefaultInputDevice();
+
+    const inputConfig = cpal.getDefaultInputConfig(inputDevice.deviceId);
 
       this.inputStream = (cpal as any).createStream(
         inputDevice.deviceId,
@@ -45,20 +89,21 @@ export class AudioRecorder {
             if (!this.firstCallbackTime) {
               this.firstCallbackTime = performance.now();
               const callbackDelay = this.firstCallbackTime - (this.streamStartTime ?? 0);
-              console.log(`[PERF] First audio callback fired after ${callbackDelay.toFixed(0)}ms`);
+              logger.info(`[PERF] First audio callback fired after ${callbackDelay.toFixed(0)}ms`);
             }
             this.audioBuffers.push(new Float32Array(data));
           }
         }
       );
 
-      this.sampleRate = inputConfig.sampleRate;
-      this.channels = inputConfig.channels;
-      this.streamCreated = true;
-    } catch (error) {
-      console.error(`[ERROR] Failed to initialize audio recorder: ${error}`);
-      throw error;
-    }
+    this.sampleRate = inputConfig.sampleRate;
+    this.channels = inputConfig.channels;
+    this.streamCreated = true;
+
+    return {
+      deviceId: inputDevice.deviceId,
+      deviceName: inputDevice.name
+    };
   }
 
   async startRecording(): Promise<void> {
