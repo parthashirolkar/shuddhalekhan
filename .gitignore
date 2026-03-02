@@ -1,15 +1,9 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-
 # Build outputs
 build/
 dist/
 Output/
 *.spec
 
-# Virtual environments
-.venv
 
 # Assets (icon will be generated)
 assets/*.ico
@@ -19,3 +13,6 @@ config.yaml
 *.yaml
 !default_config.yaml
 *.exe
+
+# Agent CLI files
+CLAUDE.md

@@ -6,9 +6,13 @@
   "scripts": {
     "build": "bun build src/index.ts --compile --windows-icon=./tray-icon.ico --outfile speech-to-text.exe",
     "build:gui": "bun build src/index.ts --compile --windows-icon=./tray-icon.ico --windows-hide-console --outfile speech-to-text.exe",
-    "build:headless": "bun build src/index.ts --compile --windows-icon=./tray-icon.ico --outfile speech-to-text.exe && powershell -ExecutionPolicy Bypass -NoProfile -File build-headless.ps1"
+    "build:headless": "bun build src/index.ts --compile --windows-icon=./tray-icon.ico --outfile speech-to-text.exe && powershell -ExecutionPolicy Bypass -NoProfile -File build-headless.ps1",
+    "lint": "bunx @biomejs/biome check src/",
+    "lint:fix": "bunx @biomejs/biome check --write src/",
+    "typecheck": "bunx tsc --noEmit"
   },
   "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
     "@types/bun": "latest",
     "@types/form-data": "^2.5.2",
     "@types/node": "^25.0.9"
