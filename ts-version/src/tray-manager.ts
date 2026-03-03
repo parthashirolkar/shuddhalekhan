@@ -8,6 +8,7 @@ import {
 	AudioDeviceManager,
 } from "./audio-device-manager.ts";
 import type { AudioRecorder } from "./audio-recorder.ts";
+import { type Config, ConfigManager } from "./config.ts";
 import { logger } from "./logger.ts";
 
 const { default: SysTray } = require("systray2");
@@ -24,17 +25,15 @@ interface MenuItemClickable {
 	click?: () => void;
 }
 
-interface Config {
-	audio: {
-		deviceId?: string;
-		deviceName?: string;
-		[key: string]: any;
-	};
-	[key: string]: any;
-}
-
 export class TrayManager {
-	private systray: any = null;
+	private systray!: {
+		onClick: (
+			callback: (action: { item?: { click?: () => void } }) => void,
+		) => void;
+		sendAction: (action: { type: string; item: unknown }) => void;
+		kill: (immediate: boolean) => void;
+		ready: () => Promise<void>;
+	};
 	private recordingState: RecordingState = "idle";
 	private configPath: string;
 	private onExitCallback?: () => void;
@@ -63,7 +62,31 @@ export class TrayManager {
 			return JSON.parse(configData);
 		} catch (error) {
 			logger.error(`Failed to load config: ${error}`);
-			return { audio: {} };
+			return {
+				whisper: {
+					serverUrl: "http://localhost:8080/inference",
+					temperature: 0.2,
+					language: "auto",
+				},
+				audio: {
+					sampleRate: 16000,
+					channels: 1,
+					minDuration: 0.3,
+				},
+				hotkeys: {
+					startRecording: ["ctrl", "lwin"],
+					stopWithNewline: ["ctrl"],
+					stopWithoutNewline: ["alt"],
+				},
+				agent: {
+					enabled: false,
+					model: "functiongemma:latest",
+					ollamaUrl: "http://localhost:11434",
+					hotkey: ["ctrl", "alt", "lwin"],
+					showConfirmation: true,
+					confirmationTimeoutSeconds: 10,
+				},
+			};
 		}
 	}
 
@@ -149,8 +172,8 @@ export class TrayManager {
 			copyDir: true, // CRITICAL for icon to work in compiled executable
 		});
 
-		this.systray.onClick((action: any) => {
-			if (action.item && action.item.click) {
+		this.systray?.onClick((action: { item?: { click?: () => void } }) => {
+			if (action.item?.click) {
 				action.item.click();
 			}
 		});

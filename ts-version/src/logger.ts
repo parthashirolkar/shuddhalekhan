@@ -36,7 +36,7 @@ export class Logger {
 	private writeLog(level: LogLevel, message: string): void {
 		const formattedMessage = this.formatMessage(level, message);
 		try {
-			appendFileSync(this.logFilePath, formattedMessage + "\n", "utf-8");
+			appendFileSync(this.logFilePath, `${formattedMessage}\n`, "utf-8");
 		} catch (error) {
 			console.error(`Failed to write to log file: ${error}`);
 		}

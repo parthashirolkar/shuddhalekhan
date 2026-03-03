@@ -2,6 +2,24 @@ import { Buffer } from "node:buffer";
 import * as cpal from "node-cpal";
 import { logger } from "./logger.ts";
 
+interface CpalAudioStream {
+	readonly deviceId: string;
+	readonly streamId: string;
+}
+
+interface CpalModuleWithStream {
+	createStream: (
+		deviceId: string,
+		isInput: boolean,
+		config: {
+			sampleRate: number;
+			channels: number;
+			sampleFormat: string;
+		},
+		callback: (data: Float32Array) => void,
+	) => CpalAudioStream;
+}
+
 const SAMPLE_RATE = 16000;
 const CHANNELS = 1;
 
@@ -15,7 +33,7 @@ export interface AudioRecorderResult {
 export class AudioRecorder {
 	private isRecording = false;
 	private audioBuffers: Float32Array[] = [];
-	private inputStream: any = null;
+	private inputStream: CpalAudioStream | null = null;
 	private sampleRate = 16000;
 	private channels = 1;
 	private streamCreated = false;
@@ -79,7 +97,7 @@ export class AudioRecorder {
 
 		const inputConfig = cpal.getDefaultInputConfig(inputDevice.deviceId);
 
-		this.inputStream = (cpal as any).createStream(
+		this.inputStream = (cpal as unknown as CpalModuleWithStream).createStream(
 			inputDevice.deviceId,
 			true,
 			{

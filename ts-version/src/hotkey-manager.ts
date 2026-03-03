@@ -95,11 +95,9 @@ export class HotkeyManager {
 				this.winKeyCodes.size > 0 &&
 				this.altKeyCodes.size > 0
 			) {
-				console.log("[DEBUG] Ctrl+Alt+Win detected - starting agent mode");
 				this.isAgentMode = true;
 				this.triggerAction("start_agent");
 			} else if (this.ctrlKeyCodes.size > 0 && this.winKeyCodes.size > 0) {
-				console.log("[DEBUG] Ctrl+Win detected - starting standard recording");
 				this.isAgentMode = false;
 				this.triggerAction("start");
 			}

@@ -49,7 +49,7 @@ export class ConfirmationDialog {
 					MB_SYSTEMMODAL,
 				0,
 				options.timeoutSeconds * 1000,
-				(err: any, result: number) => {
+				(err: Error | null, result: number) => {
 					if (err) {
 						resolve("timeout");
 						return;

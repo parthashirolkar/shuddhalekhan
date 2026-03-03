@@ -12,9 +12,6 @@ import { WhisperClient } from "./whisper-client.ts";
 const configManager = new ConfigManager();
 const config = configManager.getConfig();
 
-console.log("[DEBUG] Agent config:", JSON.stringify(config.agent, null, 2));
-console.log("[DEBUG] Agent mode enabled:", config.agent?.enabled ?? false);
-
 const audioRecorder = new AudioRecorder();
 const whisperClient = new WhisperClient(config.whisper.serverUrl);
 const hotkeyManager = new HotkeyManager();
@@ -64,7 +61,6 @@ async function main(): Promise<void> {
 	await trayManager.initialize();
 
 	hotkeyManager.onAction(async (action) => {
-		console.log(`[DEBUG] Action received: ${action}`);
 		switch (action) {
 			case "start": {
 				logger.recording("Started recording");
@@ -83,12 +79,8 @@ async function main(): Promise<void> {
 			}
 
 			case "start_agent": {
-				console.log(`[DEBUG] Agent mode enabled: ${config.agent.enabled}`);
 				if (!config.agent.enabled) {
 					logger.warning("Agent mode is disabled in config");
-					console.log(
-						"[DEBUG] Agent mode is disabled. Enable it via tray menu or config file.",
-					);
 					break;
 				}
 				logger.agent("Started agent recording");
@@ -188,7 +180,6 @@ async function handleStopRecording(withNewline: boolean): Promise<void> {
 }
 
 async function handleAgentMode(): Promise<void> {
-	console.log("[DEBUG] handleAgentMode called");
 	const stopStart = performance.now();
 	const wavBuffer = await audioRecorder.stopRecording();
 	const stopElapsed = performance.now() - stopStart;
@@ -231,21 +222,20 @@ async function handleAgentMode(): Promise<void> {
 	}
 
 	logger.agent(`User input: ${text}`);
-	console.log(`[DEBUG] Transcription received: "${text}"`);
 
 	try {
-		console.log("[DEBUG] Checking Ollama connection...");
+		logger.info("Checking Ollama connection...");
 		const ollamaConnected = await agentService.checkConnection();
-		console.log(`[DEBUG] Ollama connected: ${ollamaConnected}`);
+		if (ollamaConnected) {
+			logger.info("Ollama connected successfully");
+		}
 		if (!ollamaConnected) {
 			logger.error("Cannot connect to Ollama server");
 			trayManager.setRecordingState("idle");
 			return;
 		}
 
-		console.log("[DEBUG] Running agent...");
 		const response = await agentService.run(text);
-		console.log("[DEBUG] Agent response:", response);
 
 		if (response) {
 			logger.agent(`Agent response: ${response}`);

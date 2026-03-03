@@ -1,6 +1,18 @@
 import * as cpal from "node-cpal";
 import { logger } from "./logger.ts";
 
+interface CpalDevice {
+	deviceId: string;
+	name: string;
+	isDefaultInput: boolean;
+	isDefaultOutput: boolean;
+}
+
+interface CpalModule {
+	getDevices: () => CpalDevice[];
+	getDefaultInputDevice: () => CpalDevice | null;
+}
+
 export interface AudioDevice {
 	id: string;
 	name: string;
@@ -11,14 +23,14 @@ export class AudioDeviceManager {
 	// Enumerate audio input devices using node-cpal
 	getInputDevices(): AudioDevice[] {
 		try {
-			const allDevices = (cpal as any).getDevices();
+			const allDevices = (cpal as unknown as CpalModule).getDevices();
 
 			// Filter for input devices (devices that are not output-only)
 			const inputDevices = allDevices.filter(
-				(d: any) => d.isDefaultInput || !d.isDefaultOutput,
+				(d: CpalDevice) => d.isDefaultInput || !d.isDefaultOutput,
 			);
 
-			return inputDevices.map((d: any) => ({
+			return inputDevices.map((d: CpalDevice) => ({
 				id: d.deviceId,
 				name: d.name,
 				isDefault: d.isDefaultInput || false,

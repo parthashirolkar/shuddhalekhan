@@ -1,1 +1,0 @@
-D:/git_repos/speech-2-text/AGENTS.md
