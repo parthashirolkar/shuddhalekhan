@@ -18,6 +18,8 @@ const MessageBoxTimeoutW = user32.func(
 
 // MessageBox flags
 const MB_YESNO = 0x00000004;
+const MB_OK = 0x00000000;
+const MB_ICONINFORMATION = 0x00000040;
 const MB_ICONQUESTION = 0x00000020;
 const MB_SYSTEMMODAL = 0x00001000;
 const MB_SETFOREGROUND = 0x00010000;
@@ -89,5 +91,25 @@ export class ConfirmationDialog {
 		const entries = Object.entries(args);
 		if (entries.length === 0) return "";
 		return entries.map(([key, value]) => `${key}="${value}"`).join(", ");
+	}
+
+	showResponse(message: string): void {
+		console.log("[DEBUG RESPONSE] showResponse called");
+		console.log("[DEBUG RESPONSE] Message:", message);
+
+		// Call the native MessageBoxTimeoutW synchronously for OK dialog (no timeout needed)
+		MessageBoxTimeoutW(
+			null,
+			message,
+			"Shuddhlekhan - Agent Response",
+			MB_OK |
+				MB_ICONINFORMATION |
+				MB_TOPMOST |
+				MB_SETFOREGROUND |
+				MB_SYSTEMMODAL,
+			0,
+			0,
+		);
+		console.log("[DEBUG RESPONSE] Dialog closed");
 	}
 }

@@ -3,6 +3,7 @@ import { ChatOllama } from "@langchain/ollama";
 import { createAgent, humanInTheLoopMiddleware } from "langchain";
 import { browserTools } from "./browser-tools";
 import type { Config } from "./config";
+import { ConfirmationDialog } from "./confirmation-dialog";
 import { showKoffiPopup } from "./hitl-bridge";
 
 export interface AgentConfig {
@@ -15,6 +16,7 @@ export interface AgentConfig {
 export class AgentService {
 	private agent: ReturnType<typeof createAgent>;
 	private config: AgentConfig;
+	private confirmationDialog = new ConfirmationDialog();
 
 	constructor(config: AgentConfig) {
 		this.config = config;
@@ -44,6 +46,7 @@ export class AgentService {
 
 	async run(userInput: string): Promise<string | null> {
 		const config = { configurable: { thread_id: "fire-and-forget" } };
+		let toolWasExecuted = false;
 
 		let response = await this.agent.invoke(
 			{ messages: [{ role: "user", content: userInput }] },
@@ -63,6 +66,10 @@ export class AgentService {
 				this.config.confirmationTimeoutSeconds,
 			);
 
+			if (decision === "approve") {
+				toolWasExecuted = true;
+			}
+
 			response = await this.agent.invoke(
 				new Command({
 					resume: {
@@ -73,7 +80,13 @@ export class AgentService {
 			);
 		}
 
-		return response.messages.at(-1)?.content ?? null;
+		const finalResponse = response.messages.at(-1)?.content ?? null;
+
+		if (toolWasExecuted && finalResponse) {
+			this.confirmationDialog.showResponse(finalResponse);
+		}
+
+		return finalResponse;
 	}
 
 	async checkConnection(): Promise<boolean> {
