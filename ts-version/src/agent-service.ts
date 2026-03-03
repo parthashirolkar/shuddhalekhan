@@ -2,9 +2,10 @@ import { Command, MemorySaver } from "@langchain/langgraph";
 import { ChatOllama } from "@langchain/ollama";
 import { createAgent, humanInTheLoopMiddleware } from "langchain";
 import { browserTools } from "./browser-tools";
-import type { Config } from "./config";
 import { ConfirmationDialog } from "./confirmation-dialog";
 import { showKoffiPopup } from "./hitl-bridge";
+
+const MAX_ITERATIONS = 10;
 
 export interface AgentConfig {
 	ollamaUrl: string;
@@ -47,13 +48,15 @@ export class AgentService {
 	async run(userInput: string): Promise<string | null> {
 		const config = { configurable: { thread_id: "fire-and-forget" } };
 		let toolWasExecuted = false;
+		let iterations = 0;
 
 		let response = await this.agent.invoke(
 			{ messages: [{ role: "user", content: userInput }] },
 			config,
 		);
 
-		while (response.__interrupt__) {
+		while (response.__interrupt__ && iterations < MAX_ITERATIONS) {
+			iterations++;
 			const interrupt = response.__interrupt__[0];
 			const toolRequest = interrupt.value.actionRequests[0];
 
@@ -66,6 +69,9 @@ export class AgentService {
 				this.config.confirmationTimeoutSeconds,
 			);
 
+			if (decision === "reject") {
+				break;
+			}
 			if (decision === "approve") {
 				toolWasExecuted = true;
 			}

@@ -36,9 +36,7 @@ export const searchWeb = tool(
 
 export const openBrowser = tool(
 	async ({ app_name }: { app_name: string }) => {
-		console.log("[DEBUG BROWSER TOOL] openBrowser called, app_name:", app_name);
 		const result = await toolExecutor.executeTool("open_browser", { app_name });
-		console.log("[DEBUG BROWSER TOOL] Result:", result);
 		return result.success ? result.message : `Error: ${result.error}`;
 	},
 	{

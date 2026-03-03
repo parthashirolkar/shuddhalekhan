@@ -34,15 +34,10 @@ export class ConfirmationDialog {
 	async requestConfirmation(
 		options: ConfirmationOptions,
 	): Promise<ConfirmationResult> {
-		console.log("[DEBUG CONFIRM] requestConfirmation called");
 		const argsString = this.formatArgs(options.args);
 		const message = `Execute: ${options.toolName}(${argsString})?\n\n(This dialog will auto-close and timeout in ${options.timeoutSeconds} seconds)`;
-		console.log("[DEBUG CONFIRM] Message:", message);
 
 		return new Promise((resolve) => {
-			console.log("[DEBUG CONFIRM] Showing native Windows dialog...");
-
-			// Call the native MessageBoxTimeoutW asynchronously
 			MessageBoxTimeoutW.async(
 				null,
 				message,
@@ -55,30 +50,19 @@ export class ConfirmationDialog {
 				0,
 				options.timeoutSeconds * 1000,
 				(err: any, result: number) => {
-					console.log(
-						"[DEBUG CONFIRM] Native dialog closed. Result code:",
-						result,
-					);
 					if (err) {
-						console.error(
-							"[DEBUG CONFIRM] Error calling MessageBoxTimeoutW:",
-							err,
-						);
 						resolve("timeout");
 						return;
 					}
 
 					switch (result) {
 						case IDYES:
-							console.log("[DEBUG CONFIRM] Resolved to: allowed");
 							resolve("allowed");
 							break;
 						case IDNO:
-							console.log("[DEBUG CONFIRM] Resolved to: denied");
 							resolve("denied");
 							break;
 						default:
-							console.log("[DEBUG CONFIRM] Resolved to: timeout");
 							resolve("timeout");
 							break;
 					}
@@ -93,11 +77,15 @@ export class ConfirmationDialog {
 		return entries.map(([key, value]) => `${key}="${value}"`).join(", ");
 	}
 
+	/**
+	 * Shows a blocking OK dialog with the agent's response.
+	 * This is a synchronous, blocking call that will pause the application
+	 * until the user clicks OK. This is intentional for system tray apps
+	 * to ensure the user sees the response before it disappears.
+	 *
+	 * @param message - The agent's response text to display
+	 */
 	showResponse(message: string): void {
-		console.log("[DEBUG RESPONSE] showResponse called");
-		console.log("[DEBUG RESPONSE] Message:", message);
-
-		// Call the native MessageBoxTimeoutW synchronously for OK dialog (no timeout needed)
 		MessageBoxTimeoutW(
 			null,
 			message,
@@ -110,6 +98,5 @@ export class ConfirmationDialog {
 			0,
 			0,
 		);
-		console.log("[DEBUG RESPONSE] Dialog closed");
 	}
 }
