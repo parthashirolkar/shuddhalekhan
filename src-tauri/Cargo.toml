@@ -1,0 +1,33 @@
+[package]
+name = "speech-2-text"
+version = "2.0.0"
+description = "Speech-to-text system tray application using Tauri"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "speech_2_text_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-ico"] }
+tauri-plugin-shell = "2"
+tauri-plugin-global-shortcut = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+cpal = "0.17"
+enigo = "0.3"
+reqwest = { version = "0.12", features = ["multipart", "blocking", "json"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio = { version = "1", features = ["full"] }
+dirs = "5.0"
+rdev = "0.5"
+dasp_interpolate = { version = "0.11.0", optional = true }
+
+[features]
+dasp_interpolate = ["dep:dasp_interpolate"]
+
