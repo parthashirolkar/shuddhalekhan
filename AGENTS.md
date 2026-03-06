@@ -6,10 +6,10 @@ This file provides guidelines for agentic coding tools working in this repositor
 
 ## Project Overview
 
-TypeScript/Bun speech-to-text system tray application using whisper.cpp Docker container for GPU-accelerated transcription.
-- **Runtime**: Bun v1.3.5+
-- **Entry Point**: `ts-version/src/index.ts`
-- **UI**: Windows system tray with systray2
+Tauri-based speech-to-text system tray application with React frontend and Rust backend.
+- **Frontend Entry Point**: `src/main.tsx`
+- **Desktop Entry Points**: `src-tauri/src/main.rs` and `src-tauri/src/lib.rs`
+- **Runtime**: Tauri v2 + Bun for frontend tooling
 
 ---
 
@@ -25,20 +25,19 @@ bun run lint
 # Fix lint issues
 bun run lint:fix
 
-# Type check
+# Type check frontend
 bun run typecheck
 
-# Run tests (if test framework added)
-bun test tests/*.test.ts
+# Check Rust backend
+cd src-tauri && cargo check
 
-# Run single test function
-bun test tests/*.test.ts --test-name-pattern "test_function_name"
+# Run app in development
+bun run tauri dev
 ```
 
 ---
 
 **Key points**:
-- Use relative path `"./tray-icon.ico"`, NOT Bun's `import ... with { type: "file" }`
-- Set `copyDir: true` or icon won't work in compiled executable
-- Icon file must be in working directory (where executable runs)
-- Update menu items dynamically with `systray.sendAction({ type: "update-item", item })`
+- Tray icon path is `src-tauri/icons/tray-icon.ico`.
+- Recording popup UI is rendered from React (`src/RecordingPopup.tsx`) inside the Tauri `recording` window.
+- Text injection must not append Enter/newline by default.

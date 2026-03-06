@@ -1,18 +1,45 @@
-# Build outputs
+# Build outputs and dependencies
 build/
 dist/
+node_modules/
+
+# Rust/Tauri generated artifacts
+src-tauri/target/
+src-tauri/gen/schemas/
+tauri_test/
+tauri_test/target/
+
+# Local config and binaries
 Output/
 *.spec
-
-
-# Assets (icon will be generated)
 assets/*.ico
-
-# Config files (don't commit personal config)
 config.yaml
 *.yaml
 !default_config.yaml
 *.exe
+
+# Coverage / caches
+coverage/
+*.lcov
+.eslintcache
+.cache/
+*.tsbuildinfo
+
+# logs
+logs/
+*.log
+report.*.json
+
+# dotenv files
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+# IDE / OS
+.idea/
+.DS_Store
 
 # Agent CLI files
 CLAUDE.md
