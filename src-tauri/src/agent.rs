@@ -1,4 +1,4 @@
-use reqwest::blocking::Client;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -25,6 +25,7 @@ struct OllamaResponse {
     response: String,
 }
 
+#[derive(Clone)]
 pub struct AgentManager {
     client: Client,
     ollama_url: String,
@@ -47,7 +48,7 @@ impl AgentManager {
         Ok(())
     }
 
-    pub fn send_prompt(&self, prompt: &str) -> Result<AgentResponse, String> {
+    pub async fn send_prompt(&self, prompt: &str) -> Result<AgentResponse, String> {
         let req = OllamaRequest {
             model: "llama3.2".to_string(),
             prompt: prompt.to_string(),
@@ -60,6 +61,7 @@ impl AgentManager {
             .header("Content-Type", "application/json")
             .body(serde_json::to_string(&req).map_err(|e| format!("Failed to serialize: {}", e))?)
             .send()
+            .await
             .map_err(|e| format!("Failed to send prompt to Ollama: {}", e))?;
 
         if !response.status().is_success() {
@@ -68,6 +70,7 @@ impl AgentManager {
 
         let ollama_resp: OllamaResponse = response
             .json()
+            .await
             .map_err(|e| format!("Failed to parse Ollama response: {}", e))?;
 
         Ok(AgentResponse {

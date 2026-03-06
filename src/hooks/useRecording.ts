@@ -15,10 +15,10 @@ export function useRecording() {
       listen('recording-stopped', async () => {
         setIsRecording(false);
       }),
-      listen('audio-level', (event: any) => {
+      listen('audio-level-changed', (event: any) => {
         setAudioLevel(event.payload);
       }),
-      listen('recording-duration', (event: any) => {
+      listen('recording-duration-changed', (event: any) => {
         setDuration(event.payload);
       }),
     ];

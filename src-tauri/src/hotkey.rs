@@ -27,7 +27,7 @@ impl HotkeyManager {
     }
 
     pub fn set_app_handle(&self, handle: AppHandle) {
-        *self.app_handle.lock().unwrap() = Some(handle);
+        *self.app_handle.lock().expect("Failed to lock app_handle") = Some(handle);
     }
 
     pub fn start(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -54,14 +54,14 @@ impl HotkeyManager {
     ) {
         match &event.event_type {
             EventType::KeyPress(key) => {
-                let handle_guard = app_handle.lock().unwrap();
+                let handle_guard = app_handle.lock().expect("Failed to lock app_handle");
                 let Some(app) = handle_guard.as_ref() else {
                     return;
                 };
                 Self::handle_key_press(*key, state, app);
             }
             EventType::KeyRelease(key) => {
-                let handle_guard = app_handle.lock().unwrap();
+                let handle_guard = app_handle.lock().expect("Failed to lock app_handle");
                 let Some(app) = handle_guard.as_ref() else {
                     return;
                 };
@@ -72,7 +72,7 @@ impl HotkeyManager {
     }
 
     fn handle_key_press(key: Key, state: &Arc<Mutex<ModifierState>>, app: &AppHandle) {
-        let mut st = state.lock().unwrap();
+        let mut st = state.lock().expect("Failed to lock modifier state");
 
         match key {
             Key::ControlLeft | Key::ControlRight => {
@@ -108,7 +108,7 @@ impl HotkeyManager {
     }
 
     fn handle_key_release(key: Key, state: &Arc<Mutex<ModifierState>>, app: &AppHandle) {
-        let mut st = state.lock().unwrap();
+        let mut st = state.lock().expect("Failed to lock modifier state");
 
         match key {
             Key::ControlLeft | Key::ControlRight => {
@@ -118,8 +118,6 @@ impl HotkeyManager {
                     let _ = app.emit("recording-stopped", false);
                     st.is_recording = false;
                     st.is_agent_mode = false;
-                    st.win_pressed = false;
-                    st.alt_pressed = false;
                 }
             }
             Key::MetaLeft | Key::MetaRight => {
@@ -130,7 +128,6 @@ impl HotkeyManager {
                     let _ = app.emit("recording-stopped", false);
                     st.is_recording = false;
                     st.is_agent_mode = false;
-                    st.alt_pressed = false;
                 }
             }
             Key::Alt | Key::AltGr => {
@@ -140,8 +137,6 @@ impl HotkeyManager {
                     let _ = app.emit("recording-stopped", false);
                     st.is_recording = false;
                     st.is_agent_mode = false;
-                    st.ctrl_pressed = false;
-                    st.win_pressed = false;
                 }
             }
             _ => {}

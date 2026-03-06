@@ -17,10 +17,11 @@ impl TextInjector {
 
     pub fn type_text(&mut self, text: &str, delay_ms: u64) -> Result<(), String> {
         // Replace newlines with spaces to avoid accidental Enter keypresses
-        let sanitized_text = text.replace('\n', " ").replace('\r', " ");
+        let sanitized_text = text.replace(['\n', '\r'], " ");
         eprintln!("🔤 Typing text (char-by-char): \"{}\"", sanitized_text);
 
         // Character-by-character for reliability (enigo.text() is buggy on Windows)
+        #[cfg(target_os = "windows")]
         for c in sanitized_text.chars() {
             if c == ' ' {
                 self.enigo
@@ -36,6 +37,11 @@ impl TextInjector {
             }
             thread::sleep(Duration::from_millis(delay_ms));
         }
+
+        #[cfg(not(target_os = "windows"))]
+        self.enigo
+            .text(&sanitized_text)
+            .map_err(|e| format!("Failed to type text: {:?}", e))?;
 
         eprintln!("✅ Text injection complete");
         Ok(())

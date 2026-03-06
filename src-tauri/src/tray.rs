@@ -31,7 +31,12 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let menu = Menu::with_items(app, &[&select_device_submenu, &separator, &exit_item])?;
 
     // Build tray icon
+    #[cfg(target_os = "windows")]
     let tray_icon = Image::from_bytes(include_bytes!("../icons/tray-icon.ico"))
+        .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
+        
+    #[cfg(not(target_os = "windows"))]
+    let tray_icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))
         .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
 
     let _tray = TrayIconBuilder::new()

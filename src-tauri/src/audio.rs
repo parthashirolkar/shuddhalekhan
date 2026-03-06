@@ -13,6 +13,7 @@ pub struct AudioManager {
     stream: Arc<Mutex<Option<Stream>>>,
     input_sample_rate: Arc<Mutex<u32>>,
     input_channels: Arc<Mutex<u16>>,
+    err_callback: Arc<Mutex<Option<cpal::StreamError>>>,
 }
 
 impl AudioManager {
@@ -32,6 +33,7 @@ impl AudioManager {
             stream: Arc::new(Mutex::new(None)),
             input_sample_rate: Arc::new(Mutex::new(0)),
             input_channels: Arc::new(Mutex::new(0)),
+            err_callback: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -41,6 +43,8 @@ impl AudioManager {
             .input_devices()
             .map_err(|e| format!("Failed to get input devices: {}", e))?;
 
+        // Deprecated d.name() used because cpal hasn't provided a stable cross-platform 
+        // alternative for getting device names yet as of 0.15+.
         #[allow(deprecated)]
         let device_names: Vec<String> = devices.filter_map(|d| d.name().ok()).collect();
 
@@ -54,6 +58,7 @@ impl AudioManager {
             .map_err(|e| format!("Failed to get input devices: {}", e))?;
 
         for device in devices {
+            // See rationale for deprecated d.name() above
             #[allow(deprecated)]
             if let Ok(name) = device.name() {
                 if name == device_name {
@@ -67,7 +72,7 @@ impl AudioManager {
     }
 
     pub fn start_recording(&self, app: AppHandle) -> Result<(), String> {
-        if *self.is_recording.lock().unwrap() {
+        if *self.is_recording.lock().expect("Failed to lock is_recording mutex") {
             return Ok(());
         }
 
@@ -91,13 +96,14 @@ impl AudioManager {
         let audio_buffer = Arc::clone(&self.audio_buffer);
         let start_time = Arc::clone(&self.start_time);
 
-        *is_recording.lock().unwrap() = true;
-        audio_buffer.lock().unwrap().clear();
-        *start_time.lock().unwrap() = Some(Instant::now());
-        *self.input_sample_rate.lock().unwrap() = sample_rate;
-        *self.input_channels.lock().unwrap() = channels;
+        *is_recording.lock().expect("Failed to lock is_recording mutex") = true;
+        audio_buffer.lock().expect("Failed to lock audio buffer").clear();
+        *start_time.lock().expect("Failed to lock start time") = Some(Instant::now());
+        *self.input_sample_rate.lock().expect("Failed to lock input sample rate") = sample_rate;
+        *self.input_channels.lock().expect("Failed to lock input channels") = channels;
 
-        let err_callback = Arc::new(Mutex::new(None));
+        let err_callback = Arc::clone(&self.err_callback);
+        *err_callback.lock().expect("Failed to lock err callback") = None;
 
         let stream = match sample_format {
             SampleFormat::I16 => device.build_input_stream(
@@ -106,7 +112,8 @@ impl AudioManager {
                     Self::process_audio_i16(data, &audio_buffer, &app, &start_time);
                 },
                 move |err| {
-                    *err_callback.lock().unwrap() = Some(err);
+                    eprintln!("Audio stream error: {:?}", err);
+                    *err_callback.lock().expect("Failed to lock err callback") = Some(err);
                 },
                 None,
             ),
@@ -116,7 +123,8 @@ impl AudioManager {
                     Self::process_audio_f32(data, &audio_buffer, &app, &start_time);
                 },
                 move |err| {
-                    *err_callback.lock().unwrap() = Some(err);
+                    eprintln!("Audio stream error: {:?}", err);
+                    *err_callback.lock().expect("Failed to lock err callback") = Some(err);
                 },
                 None,
             ),
@@ -128,20 +136,26 @@ impl AudioManager {
         stream
             .play()
             .map_err(|e| format!("Failed to play stream: {}", e))?;
-        *self.stream.lock().unwrap() = Some(stream);
+        *self.stream.lock().expect("Failed to lock stream") = Some(stream);
 
         Ok(())
     }
 
     pub fn stop_recording(&mut self) -> Result<Vec<u8>, String> {
-        *self.is_recording.lock().unwrap() = false;
+        *self.is_recording.lock().expect("Failed to lock is_recording mutex") = false;
+
+        // Check for stream errors that occurred during recording
+        if let Some(err) = self.err_callback.lock().expect("Failed to lock err_callback").take() {
+            eprintln!("Recorded stream encountered an error previously: {:?}", err);
+            // We can continue processing what we have been able to record
+        }
 
         // Drop the stream to stop recording
-        *self.stream.lock().unwrap() = None;
+        *self.stream.lock().expect("Failed to lock stream") = None;
 
-        let buffer = self.audio_buffer.lock().unwrap().clone();
-        let sample_rate = *self.input_sample_rate.lock().unwrap();
-        let channels = *self.input_channels.lock().unwrap();
+        let buffer = self.audio_buffer.lock().expect("Failed to lock audio buffer").clone();
+        let sample_rate = *self.input_sample_rate.lock().expect("Failed to lock input sample rate");
+        let channels = *self.input_channels.lock().expect("Failed to lock input channels");
 
         // 1. Downmix to mono if necessary
         let mono_buffer = if channels > 1 {
@@ -186,7 +200,7 @@ impl AudioManager {
             .into_iter()
             .flat_map(|sample| {
                 // clamp and convert to i16
-                let s = sample.max(-1.0).min(1.0);
+                let s = sample.clamp(-1.0, 1.0);
                 let val = (s * 32767.0) as i16;
                 val.to_le_bytes()
             })
@@ -222,11 +236,11 @@ impl AudioManager {
         wav.extend_from_slice(b"fmt ");
         wav.extend_from_slice(&16u32.to_le_bytes()); // chunk size
         wav.extend_from_slice(&1u16.to_le_bytes()); // audio format (PCM)
-        wav.extend_from_slice(&(num_channels as u16).to_le_bytes());
-        wav.extend_from_slice(&(sample_rate as u32).to_le_bytes());
+        wav.extend_from_slice(&num_channels.to_le_bytes());
+        wav.extend_from_slice(&sample_rate.to_le_bytes());
         wav.extend_from_slice(&byte_rate.to_le_bytes());
         wav.extend_from_slice(&block_align.to_le_bytes());
-        wav.extend_from_slice(&(bits_per_sample as u16).to_le_bytes());
+        wav.extend_from_slice(&bits_per_sample.to_le_bytes());
 
         // data chunk
         wav.extend_from_slice(b"data");
@@ -247,15 +261,16 @@ impl AudioManager {
             .map(|&sample| (sample as f32) / 32768.0)
             .collect();
 
-        let mut buffer = audio_buffer.lock().unwrap();
+        let mut buffer = audio_buffer.lock().expect("Failed to lock audio buffer");
         buffer.extend_from_slice(&floats);
+        drop(buffer);
 
         let level = calculate_audio_level_i16(data);
-        let duration = start_time.lock().unwrap().map(|t| t.elapsed().as_secs());
+        let duration = start_time.lock().expect("Failed to lock start time").map(|t| t.elapsed().as_secs());
 
-        let _ = app.emit("audio-level", level);
+        let _ = app.emit("audio-level-changed", level);
         if let Some(d) = duration {
-            let _ = app.emit("recording-duration", d);
+            let _ = app.emit("recording-duration-changed", d);
         }
     }
 
@@ -265,15 +280,16 @@ impl AudioManager {
         app: &AppHandle,
         start_time: &Arc<Mutex<Option<Instant>>>,
     ) {
-        let mut buffer = audio_buffer.lock().unwrap();
+        let mut buffer = audio_buffer.lock().expect("Failed to lock audio buffer");
         buffer.extend_from_slice(data);
+        drop(buffer);
 
         let level = calculate_audio_level_f32(data);
-        let duration = start_time.lock().unwrap().map(|t| t.elapsed().as_secs());
+        let duration = start_time.lock().expect("Failed to lock start time").map(|t| t.elapsed().as_secs());
 
-        let _ = app.emit("audio-level", level);
+        let _ = app.emit("audio-level-changed", level);
         if let Some(d) = duration {
-            let _ = app.emit("recording-duration", d);
+            let _ = app.emit("recording-duration-changed", d);
         }
     }
 }

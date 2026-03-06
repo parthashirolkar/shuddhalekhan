@@ -24,60 +24,64 @@ pub struct AppState {
 
 #[tauri::command]
 fn get_audio_devices(state: State<AppState>) -> Result<Vec<String>, String> {
-    let audio_manager = state.audio_manager.lock().unwrap();
+    let audio_manager = state.audio_manager.lock().expect("Failed to lock audio_manager");
     audio_manager.get_input_devices()
 }
 
 #[tauri::command]
 fn select_audio_device(device_name: String, state: State<AppState>) -> Result<(), String> {
-    let mut audio_manager = state.audio_manager.lock().unwrap();
+    let mut audio_manager = state.audio_manager.lock().expect("Failed to lock audio_manager");
     audio_manager.set_device(&device_name)?;
 
-    let mut config = state.config.lock().unwrap();
+    let mut config = state.config.lock().expect("Failed to lock config");
     config.update_selected_device(device_name)
 }
 
 #[tauri::command]
 fn start_recording(app: AppHandle, state: State<AppState>) -> Result<(), String> {
-    let audio_manager = state.audio_manager.lock().unwrap();
+    let audio_manager = state.audio_manager.lock().expect("Failed to lock audio_manager");
     audio_manager.start_recording(app)?;
     Ok(())
 }
 
 #[tauri::command]
-fn stop_recording(state: State<AppState>) -> Result<String, String> {
-    let mut audio_manager = state.audio_manager.lock().unwrap();
-    let audio_data = audio_manager.stop_recording()?;
+async fn stop_recording(state: State<'_, AppState>) -> Result<String, String> {
+    let audio_data = {
+        let mut audio_manager = state.audio_manager.lock().expect("Failed to lock audio_manager");
+        audio_manager.stop_recording()?
+    };
 
-    drop(audio_manager);
-
-    let whisper_client = state.whisper_client.lock().unwrap();
-    let text = whisper_client.transcribe(&audio_data)?;
+    let whisper_client = {
+        state.whisper_client.lock().expect("Failed to lock whisper_client").clone()
+    };
+    let text = whisper_client.transcribe(&audio_data).await?;
 
     Ok(text)
 }
 
 #[tauri::command]
 fn inject_text(text: String, _with_newline: bool, state: State<AppState>) -> Result<(), String> {
-    let mut text_injector = state.text_injector.lock().unwrap();
+    let mut text_injector = state.text_injector.lock().expect("Failed to lock text_injector");
+    // 15ms delay is chosen as a sweet spot between perceived instant typing
+    // and reliability across different target applications (some drop keystrokes if too fast).
     text_injector.type_text(&text, 15)?;
     Ok(())
 }
 
 #[tauri::command]
 fn get_config(state: State<AppState>) -> Result<Config, String> {
-    let config = state.config.lock().unwrap();
+    let config = state.config.lock().expect("Failed to lock config");
     Ok(config.clone())
 }
 
 #[tauri::command]
 fn update_whisper_url(url: String, state: State<AppState>) -> Result<(), String> {
-    let mut config = state.config.lock().unwrap();
+    let mut config = state.config.lock().expect("Failed to lock config");
     config.update_whisper_url(url.clone())?;
 
     drop(config);
 
-    let mut whisper_client = state.whisper_client.lock().unwrap();
+    let mut whisper_client = state.whisper_client.lock().expect("Failed to lock whisper_client");
     whisper_client.set_url(url);
 
     Ok(())
@@ -86,16 +90,16 @@ fn update_whisper_url(url: String, state: State<AppState>) -> Result<(), String>
 #[tauri::command]
 async fn agent_prompt(prompt: String, state: State<'_, AppState>) -> Result<String, String> {
     {
-        let agent_manager = state.agent_manager.lock().unwrap();
+        let mut agent_manager = state.agent_manager.lock().expect("Failed to lock agent_manager");
         if !agent_manager.is_running() {
-            drop(agent_manager);
-            let mut agent_manager = state.agent_manager.lock().unwrap();
             agent_manager.start()?;
         }
     }
 
-    let agent_manager = state.agent_manager.lock().unwrap();
-    let response = agent_manager.send_prompt(&prompt)?;
+    let agent_manager = {
+        state.agent_manager.lock().expect("Failed to lock agent_manager").clone()
+    };
+    let response = agent_manager.send_prompt(&prompt).await?;
     Ok(response.response)
 }
 
@@ -173,11 +177,13 @@ pub fn run() {
                     eprintln!("🎤 Recording started event received");
 
                     if let Some(window) = app_handle.get_webview_window("recording") {
-                        position_recording_window(&window);
                         let _ = window.show();
+                        // Position window after showing to ensure current_monitor() targets the correct display 
+                        // where the window natively spawned, rather than falling back prematurely.
+                        position_recording_window(&window);
                     }
 
-                    let am = audio_manager.lock().unwrap();
+                    let am = audio_manager.lock().expect("Failed to lock audio manager");
                     if let Err(e) = am.start_recording(app_handle.clone()) {
                         eprintln!("❌ Failed to start recording: {}", e);
                     }
@@ -195,33 +201,36 @@ pub fn run() {
                 let audio_manager_bg = audio_manager_stop.clone();
                 let whisper_client_bg = whisper_client_stop.clone();
                 let text_injector_bg = text_injector_stop.clone();
+                let app_handle_bg = app_handle_stop.clone();
 
-                tauri::async_runtime::spawn_blocking(move || {
-                    let mut audio_manager = audio_manager_bg.lock().unwrap();
-                    let audio_data: Vec<u8> = match audio_manager.stop_recording() {
-                        Ok(data) => data,
-                        Err(e) => {
-                            eprintln!("❌ Failed to stop recording: {}", e);
-                            return;
+                tauri::async_runtime::spawn(async move {
+                    let audio_data: Vec<u8> = {
+                        let mut audio_manager = audio_manager_bg.lock().expect("Failed to lock audio manager (async)");
+                        match audio_manager.stop_recording() {
+                            Ok(data) => data,
+                            Err(e) => {
+                                eprintln!("❌ Failed to stop recording: {}", e);
+                                return;
+                            }
                         }
                     };
-                    drop(audio_manager);
 
                     eprintln!("📝 Transcribing {} bytes of audio...", audio_data.len());
 
-                    let whisper_client = whisper_client_bg.lock().unwrap();
-                    let text = match whisper_client.transcribe(&audio_data) {
-                        Ok(t) => t,
-                        Err(e) => {
-                            eprintln!("❌ Transcription failed: {}", e);
-                            return;
+                    let text = {
+                        let whisper_client = whisper_client_bg.lock().expect("Failed to lock whisper client (async)").clone();
+                        match whisper_client.transcribe(&audio_data).await {
+                            Ok(t) => t,
+                            Err(e) => {
+                                eprintln!("❌ Transcription failed: {}", e);
+                                return;
+                            }
                         }
                     };
-                    drop(whisper_client);
 
                     eprintln!("✅ Transcription: \"{}\"", text);
 
-                    let mut text_injector = text_injector_bg.lock().unwrap();
+                    let mut text_injector = text_injector_bg.lock().expect("Failed to lock text injector (async)");
                     if let Err(e) = text_injector.type_text(&text, 15) {
                         eprintln!("❌ Failed to inject text: {}", e);
                     } else {
