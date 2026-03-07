@@ -1,4 +1,4 @@
-import { TrayIcon } from '@tauri-apps/api/tray';
+import { TrayIcon, TrayIconEvent } from '@tauri-apps/api/tray';
 import { Menu } from '@tauri-apps/api/menu';
 import { exit } from '@tauri-apps/plugin-process';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -34,10 +34,9 @@ export async function setupTray() {
 
   const options = {
     id: 'main-tray',
-    icon: 'icons/tray-icon.ico', // Needs to map to an actual icon path or buffer in TS, or we can use the default app icon by omitting it for now, let's omit and check. Wait, Tauri api lets us use default if we provide string path from assets. Let's try omitting to use app default.
     menu,
     tooltip: 'Speech-to-Text',
-    action: (e: any) => {
+    action: (e: TrayIconEvent) => {
         if (e.type === 'Click' && e.button === 'Left') {
             const appWindow = getCurrentWebviewWindow();
             appWindow.show();

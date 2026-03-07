@@ -1,5 +1,6 @@
 import { register, unregisterAll } from '@tauri-apps/plugin-global-shortcut';
 import { invoke } from '@tauri-apps/api/core';
+import { message } from '@tauri-apps/plugin-dialog';
 import { handleAudioTranscription } from './whisperClient';
 
 export async function setupHotkeys() {
@@ -27,5 +28,9 @@ export async function setupHotkeys() {
     console.log(`Registered hotkey: ${shortcut}`);
   } catch (err) {
     console.error(`Failed to register hotkey ${shortcut}:`, err);
+    await message(
+      `Failed to register push-to-talk hotkey (${shortcut}).\n\nAnother application might be using it, or your OS is blocking it.`, 
+      { title: 'Hotkey Error', kind: 'warning' }
+    );
   }
 }

@@ -61,8 +61,13 @@ export function useConfig() {
   }, []);
 
   const update = async <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => {
-    await updateConfig(key, value);
-    setConfig((prev) => ({ ...prev, [key]: value }));
+    try {
+      await updateConfig(key, value);
+      setConfig((prev) => ({ ...prev, [key]: value }));
+    } catch (e) {
+      console.error("Failed to update config:", e);
+      // Depending on UI framework, could show a toast here
+    }
   };
 
   return { config, update, loading };
