@@ -16,6 +16,7 @@ export async function setupTray() {
         id: 'settings',
         text: 'Settings',
         action: async () => {
+          console.log('Settings clicked');
           const appWindow = getCurrentWebviewWindow();
           await appWindow.show();
           await appWindow.setFocus();
@@ -25,6 +26,7 @@ export async function setupTray() {
         id: 'quit',
         text: 'Quit',
         action: async () => {
+          console.log('Quit clicked');
           await exit(0);
         },
       },
