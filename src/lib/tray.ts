@@ -2,7 +2,6 @@ import { TrayIcon, TrayIconEvent } from '@tauri-apps/api/tray';
 import { Menu } from '@tauri-apps/api/menu';
 import { exit } from '@tauri-apps/plugin-process';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { defaultWindowIcon } from '@tauri-apps/api/app';
 
 let trayIcon: TrayIcon | null = null;
 
@@ -17,7 +16,6 @@ export async function setupTray() {
         id: 'settings',
         text: 'Settings',
         action: async () => {
-          // Open settings window or handle settings logic
           const appWindow = getCurrentWebviewWindow();
           await appWindow.show();
           await appWindow.setFocus();
@@ -35,7 +33,7 @@ export async function setupTray() {
 
   const options = {
     id: 'main-tray',
-    icon: await defaultWindowIcon() || undefined,
+    icon: 'icons/tray-icon.ico',
     menu,
     tooltip: 'Speech-to-Text',
     action: (e: TrayIconEvent) => {
