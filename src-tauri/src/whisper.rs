@@ -31,7 +31,7 @@ impl WhisperClient {
 
         let form = multipart::Form::new()
             .part("file", part)
-            .text("temperature", "0.0")
+            .text("temperature", "0.2")
             .text("response_format", "json");
 
         let response = self
