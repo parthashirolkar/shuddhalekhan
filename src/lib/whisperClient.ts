@@ -20,7 +20,10 @@ export async function handleAudioTranscription(audioData: Uint8Array) {
       throw new Error(`Invalid Whisper URL configured: ${whisperUrl}`);
     }
 
-    const blob = new Blob([audioData], { type: 'audio/wav' });
+    // Convert the incoming numeric array back to a binary ArrayBuffer before creating the Blob
+    const binaryData = new Uint8Array(audioData);
+    const blob = new Blob([binaryData], { type: 'audio/wav' });
+    
     const formData = new FormData();
     formData.append('file', blob, 'audio.wav');
     formData.append('temperature', '0.2');

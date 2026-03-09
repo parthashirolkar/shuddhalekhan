@@ -7,8 +7,7 @@ export async function setupHotkeys() {
   await unregisterAll();
   
   // Try to register the push-to-talk hotkey
-  // We use Super for the Windows/Meta key.
-  const shortcut = 'Control+Super'; 
+  const shortcut = 'Control+Shift+R'; 
   
   try {
     await register(shortcut, async (event) => {
