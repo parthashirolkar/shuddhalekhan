@@ -94,7 +94,7 @@ function App() {
         </div>
       </div>
       <p className="hint" style={{marginTop: '20px'}}>
-        Push-to-talk hotkey is: <code>Ctrl + Shift + Space</code>
+        Push-to-talk hotkey is: <code>Ctrl + M</code>
       </p>
     </main>
   );
