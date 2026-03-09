@@ -2,6 +2,7 @@ import { register, unregisterAll } from '@tauri-apps/plugin-global-shortcut';
 import { invoke } from '@tauri-apps/api/core';
 import { message } from '@tauri-apps/plugin-dialog';
 import { handleAudioTranscription } from './whisperClient';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 
 export async function setupHotkeys() {
   await unregisterAll();
@@ -13,11 +14,19 @@ export async function setupHotkeys() {
     await register(shortcut, async (event) => {
       if (event.state === 'Pressed') {
         console.log('Push-to-talk pressed');
+        const recordingWindow = await WebviewWindow.getByLabel('recording');
+        if (recordingWindow) {
+          await recordingWindow.show();
+        }
         await invoke('start_recording');
       } else if (event.state === 'Released') {
         console.log('Push-to-talk released');
+        const recordingWindow = await WebviewWindow.getByLabel('recording');
+        if (recordingWindow) {
+          await recordingWindow.hide();
+        }
         try {
-          const audioData = await invoke<Uint8Array>('stop_recording');
+          const audioData = await invoke<ArrayBuffer>('stop_recording');
           await handleAudioTranscription(audioData);
         } catch (e) {
           console.error('Error during stop_recording or transcription:', e);
