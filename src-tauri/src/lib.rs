@@ -66,6 +66,15 @@ pub fn run() {
                 AudioManager::new().expect("Failed to initialize audio manager"),
             ));
 
+            // Initialize the audio stream permanently (zero-latency recording)
+            {
+                let audio_manager_init = audio_manager.lock().expect("Failed to lock audio manager for initialization");
+                if let Err(e) = audio_manager_init.initialize_stream(app.handle().clone()) {
+                    eprintln!("⚠️  Warning: Failed to initialize audio stream on startup: {}", e);
+                    eprintln!("📝 The stream will be initialized on first recording instead.");
+                }
+            }
+
             let text_injector = Arc::new(Mutex::new(
                 TextInjector::new().expect("Failed to initialize text injector"),
             ));

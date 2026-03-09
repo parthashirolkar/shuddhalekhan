@@ -14,6 +14,7 @@ pub struct AudioManager {
     input_sample_rate: Arc<Mutex<u32>>,
     input_channels: Arc<Mutex<u16>>,
     err_callback: Arc<Mutex<Option<cpal::StreamError>>>,
+    discard_audio: Arc<Mutex<bool>>,
 }
 
 impl AudioManager {
@@ -34,6 +35,7 @@ impl AudioManager {
             input_sample_rate: Arc::new(Mutex::new(0)),
             input_channels: Arc::new(Mutex::new(0)),
             err_callback: Arc::new(Mutex::new(None)),
+            discard_audio: Arc::new(Mutex::new(true)),
         })
     }
 
@@ -43,7 +45,7 @@ impl AudioManager {
             .input_devices()
             .map_err(|e| format!("Failed to get input devices: {}", e))?;
 
-        // Deprecated d.name() used because cpal hasn't provided a stable cross-platform 
+        // Deprecated d.name() used because cpal hasn't provided a stable cross-platform
         // alternative for getting device names yet as of 0.15+.
         #[allow(deprecated)]
         let device_names: Vec<String> = devices.filter_map(|d| d.name().ok()).collect();
@@ -71,8 +73,8 @@ impl AudioManager {
         Err(format!("Device '{}' not found", device_name))
     }
 
-    pub fn start_recording(&self, app: AppHandle) -> Result<(), String> {
-        if *self.is_recording.lock().expect("Failed to lock is_recording mutex") {
+    pub fn initialize_stream(&self, app: AppHandle) -> Result<(), String> {
+        if self.stream.lock().expect("Failed to lock stream").is_some() {
             return Ok(());
         }
 
@@ -92,24 +94,32 @@ impl AudioManager {
         let config: StreamConfig = default_config.clone().into();
         let sample_format = default_config.sample_format();
 
-        let is_recording = Arc::clone(&self.is_recording);
         let audio_buffer = Arc::clone(&self.audio_buffer);
         let start_time = Arc::clone(&self.start_time);
-
-        *is_recording.lock().expect("Failed to lock is_recording mutex") = true;
-        audio_buffer.lock().expect("Failed to lock audio buffer").clear();
-        *start_time.lock().expect("Failed to lock start time") = Some(Instant::now());
-        *self.input_sample_rate.lock().expect("Failed to lock input sample rate") = sample_rate;
-        *self.input_channels.lock().expect("Failed to lock input channels") = channels;
-
+        let is_recording = Arc::clone(&self.is_recording);
+        let discard_audio = Arc::clone(&self.discard_audio);
+        let input_sample_rate = Arc::clone(&self.input_sample_rate);
+        let input_channels = Arc::clone(&self.input_channels);
         let err_callback = Arc::clone(&self.err_callback);
+
+        *input_sample_rate
+            .lock()
+            .expect("Failed to lock input sample rate") = sample_rate;
+        *input_channels
+            .lock()
+            .expect("Failed to lock input channels") = channels;
         *err_callback.lock().expect("Failed to lock err callback") = None;
 
         let stream = match sample_format {
             SampleFormat::I16 => device.build_input_stream(
                 &config,
                 move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                    Self::process_audio_i16(data, &audio_buffer, &app, &start_time);
+                    let should_discard =
+                        *discard_audio.lock().expect("Failed to lock discard_audio");
+                    if !should_discard && *is_recording.lock().expect("Failed to lock is_recording")
+                    {
+                        Self::process_audio_i16(data, &audio_buffer, &app, &start_time);
+                    }
                 },
                 move |err| {
                     eprintln!("Audio stream error: {:?}", err);
@@ -120,7 +130,12 @@ impl AudioManager {
             SampleFormat::F32 => device.build_input_stream(
                 &config,
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    Self::process_audio_f32(data, &audio_buffer, &app, &start_time);
+                    let should_discard =
+                        *discard_audio.lock().expect("Failed to lock discard_audio");
+                    if !should_discard && *is_recording.lock().expect("Failed to lock is_recording")
+                    {
+                        Self::process_audio_f32(data, &audio_buffer, &app, &start_time);
+                    }
                 },
                 move |err| {
                     eprintln!("Audio stream error: {:?}", err);
@@ -132,7 +147,6 @@ impl AudioManager {
         }
         .map_err(|e| format!("Failed to build stream: {}", e))?;
 
-        // Play and store the stream so it doesn't get dropped
         stream
             .play()
             .map_err(|e| format!("Failed to play stream: {}", e))?;
@@ -141,21 +155,71 @@ impl AudioManager {
         Ok(())
     }
 
+    pub fn start_recording(&self, app: AppHandle) -> Result<(), String> {
+        if *self
+            .is_recording
+            .lock()
+            .expect("Failed to lock is_recording mutex")
+        {
+            return Ok(());
+        }
+
+        // Ensure stream is running
+        if self.stream.lock().expect("Failed to lock stream").is_none() {
+            self.initialize_stream(app)?;
+        }
+
+        *self
+            .is_recording
+            .lock()
+            .expect("Failed to lock is_recording mutex") = true;
+        self.audio_buffer
+            .lock()
+            .expect("Failed to lock audio buffer")
+            .clear();
+        *self.start_time.lock().expect("Failed to lock start time") = Some(Instant::now());
+        *self
+            .discard_audio
+            .lock()
+            .expect("Failed to lock discard_audio") = false;
+
+        Ok(())
+    }
+
     pub fn stop_recording(&mut self) -> Result<Vec<u8>, String> {
-        *self.is_recording.lock().expect("Failed to lock is_recording mutex") = false;
+        *self
+            .is_recording
+            .lock()
+            .expect("Failed to lock is_recording mutex") = false;
+        *self
+            .discard_audio
+            .lock()
+            .expect("Failed to lock discard_audio") = true;
 
         // Check for stream errors that occurred during recording
-        if let Some(err) = self.err_callback.lock().expect("Failed to lock err_callback").take() {
+        if let Some(err) = self
+            .err_callback
+            .lock()
+            .expect("Failed to lock err_callback")
+            .take()
+        {
             eprintln!("Recorded stream encountered an error previously: {:?}", err);
             // We can continue processing what we have been able to record
         }
 
-        // Drop the stream to stop recording
-        *self.stream.lock().expect("Failed to lock stream") = None;
-
-        let buffer = self.audio_buffer.lock().expect("Failed to lock audio buffer").clone();
-        let sample_rate = *self.input_sample_rate.lock().expect("Failed to lock input sample rate");
-        let channels = *self.input_channels.lock().expect("Failed to lock input channels");
+        let buffer = self
+            .audio_buffer
+            .lock()
+            .expect("Failed to lock audio buffer")
+            .clone();
+        let sample_rate = *self
+            .input_sample_rate
+            .lock()
+            .expect("Failed to lock input sample rate");
+        let channels = *self
+            .input_channels
+            .lock()
+            .expect("Failed to lock input channels");
 
         // 1. Downmix to mono if necessary
         let mono_buffer = if channels > 1 {
@@ -266,7 +330,10 @@ impl AudioManager {
         drop(buffer);
 
         let level = calculate_audio_level_i16(data);
-        let duration = start_time.lock().expect("Failed to lock start time").map(|t| t.elapsed().as_secs());
+        let duration = start_time
+            .lock()
+            .expect("Failed to lock start time")
+            .map(|t| t.elapsed().as_secs());
 
         let _ = app.emit("audio-level-changed", level);
         if let Some(d) = duration {
@@ -285,7 +352,10 @@ impl AudioManager {
         drop(buffer);
 
         let level = calculate_audio_level_f32(data);
-        let duration = start_time.lock().expect("Failed to lock start time").map(|t| t.elapsed().as_secs());
+        let duration = start_time
+            .lock()
+            .expect("Failed to lock start time")
+            .map(|t| t.elapsed().as_secs());
 
         let _ = app.emit("audio-level-changed", level);
         if let Some(d) = duration {
