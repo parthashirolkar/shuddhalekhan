@@ -1,7 +1,7 @@
 import { TrayIcon, TrayIconEvent } from '@tauri-apps/api/tray';
 import { Menu } from '@tauri-apps/api/menu';
 import { exit } from '@tauri-apps/plugin-process';
-import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 
 let trayIcon: TrayIcon | null = null;
 
@@ -15,11 +15,15 @@ export async function setupTray() {
       {
         id: 'settings',
         text: 'Settings',
-        action: (id: string) => {
+        action: async (id: string) => {
           console.log('Settings clicked, id:', id);
-          const appWindow = getCurrentWebviewWindow();
-          appWindow.show();
-          appWindow.setFocus();
+          const appWindow = await WebviewWindow.getByLabel('main');
+          if (appWindow) {
+            await appWindow.show();
+            await appWindow.setFocus();
+          } else {
+            console.error('Could not find main window');
+          }
         },
       },
       {
@@ -38,11 +42,13 @@ export async function setupTray() {
     icon: 'icons/tray-icon.ico',
     menu,
     tooltip: 'Speech-to-Text',
-    action: (e: TrayIconEvent) => {
+    action: async (e: TrayIconEvent) => {
         if (e.type === 'Click' && e.button === 'Left') {
-            const appWindow = getCurrentWebviewWindow();
-            appWindow.show();
-            appWindow.setFocus();
+            const appWindow = await WebviewWindow.getByLabel('main');
+            if (appWindow) {
+              await appWindow.show();
+              await appWindow.setFocus();
+            }
         }
     }
   };
