@@ -7,7 +7,7 @@ export async function setupHotkeys() {
   await unregisterAll();
   
   // Try to register the push-to-talk hotkey
-  const shortcut = 'Control+Shift+R'; 
+  const shortcut = 'Control+Shift+Space'; 
   
   try {
     await register(shortcut, async (event) => {

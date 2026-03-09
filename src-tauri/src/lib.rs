@@ -40,7 +40,7 @@ fn inject_text(text: String, _with_newline: bool, state: State<AppState>) -> Res
 }
 
 #[tauri::command]
-async fn stop_recording(state: State<'_, AppState>) -> Result<Vec<u8>, String> {
+async fn stop_recording(state: State<'_, AppState>) -> Result<tauri::ipc::Response, String> {
     let mut audio_manager = state.audio_manager.lock().expect("Failed to lock audio_manager");
     
     // Stop recording and get the raw WAV bytes back
@@ -48,7 +48,7 @@ async fn stop_recording(state: State<'_, AppState>) -> Result<Vec<u8>, String> {
     
     // We now just return the wav_data directly to the frontend.
     // The frontend will handle the HTTP request to Whisper.
-    Ok(wav_data)
+    Ok(tauri::ipc::Response::new(wav_data))
 }
 
 // The frontend now listens to the global shortcut and calls `stop_recording` directly.

@@ -11,7 +11,7 @@ function isValidUrl(urlString: string) {
   }
 }
 
-export async function handleAudioTranscription(audioData: Uint8Array) {
+export async function handleAudioTranscription(audioData: Uint8Array | ArrayBuffer) {
   try {
     const store = await load('config.json');
     const whisperUrl = await store.get<string>('whisper_url') || 'http://127.0.0.1:8080/v1/audio/transcriptions';
@@ -20,16 +20,16 @@ export async function handleAudioTranscription(audioData: Uint8Array) {
       throw new Error(`Invalid Whisper URL configured: ${whisperUrl}`);
     }
 
-    // Convert the incoming numeric array back to a binary ArrayBuffer before creating the Blob
-    const binaryData = new Uint8Array(audioData);
-    const blob = new Blob([binaryData], { type: 'audio/wav' });
+    // Convert the incoming data to a Blob. Since we use tauri::ipc::Response, 
+    // it comes as an ArrayBuffer or Uint8Array directly from Rust.
+    const blob = new Blob([audioData], { type: 'audio/wav' });
     
     const formData = new FormData();
     formData.append('file', blob, 'audio.wav');
     formData.append('temperature', '0.2');
     formData.append('response_format', 'json');
 
-    console.log(`Sending ${audioData.length} bytes to Whisper API...`);
+    console.log(`Sending ${blob.size} bytes to Whisper API...`);
     
     const response = await fetch(whisperUrl, {
       method: 'POST',
