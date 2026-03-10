@@ -1,10 +1,10 @@
+mod agent;
 mod audio;
 mod config;
-mod keyboard;
-mod whisper;
 mod hotkey;
+mod keyboard;
 mod tray;
-mod agent;
+mod whisper;
 
 use agent::AgentManager;
 use audio::AudioManager;
@@ -24,13 +24,19 @@ pub struct AppState {
 
 #[tauri::command]
 fn get_audio_devices(state: State<AppState>) -> Result<Vec<String>, String> {
-    let audio_manager = state.audio_manager.lock().expect("Failed to lock audio_manager");
+    let audio_manager = state
+        .audio_manager
+        .lock()
+        .expect("Failed to lock audio_manager");
     audio_manager.get_input_devices()
 }
 
 #[tauri::command]
 fn select_audio_device(device_name: String, state: State<AppState>) -> Result<(), String> {
-    let mut audio_manager = state.audio_manager.lock().expect("Failed to lock audio_manager");
+    let mut audio_manager = state
+        .audio_manager
+        .lock()
+        .expect("Failed to lock audio_manager");
     audio_manager.set_device(&device_name)?;
 
     let mut config = state.config.lock().expect("Failed to lock config");
@@ -39,7 +45,10 @@ fn select_audio_device(device_name: String, state: State<AppState>) -> Result<()
 
 #[tauri::command]
 fn start_recording(app: AppHandle, state: State<AppState>) -> Result<(), String> {
-    let audio_manager = state.audio_manager.lock().expect("Failed to lock audio_manager");
+    let audio_manager = state
+        .audio_manager
+        .lock()
+        .expect("Failed to lock audio_manager");
     audio_manager.start_recording(app)?;
     Ok(())
 }
@@ -47,12 +56,19 @@ fn start_recording(app: AppHandle, state: State<AppState>) -> Result<(), String>
 #[tauri::command]
 async fn stop_recording(state: State<'_, AppState>) -> Result<String, String> {
     let audio_data = {
-        let mut audio_manager = state.audio_manager.lock().expect("Failed to lock audio_manager");
+        let mut audio_manager = state
+            .audio_manager
+            .lock()
+            .expect("Failed to lock audio_manager");
         audio_manager.stop_recording()?
     };
 
     let whisper_client = {
-        state.whisper_client.lock().expect("Failed to lock whisper_client").clone()
+        state
+            .whisper_client
+            .lock()
+            .expect("Failed to lock whisper_client")
+            .clone()
     };
     let text = whisper_client.transcribe(&audio_data).await?;
 
@@ -61,7 +77,10 @@ async fn stop_recording(state: State<'_, AppState>) -> Result<String, String> {
 
 #[tauri::command]
 fn inject_text(text: String, _with_newline: bool, state: State<AppState>) -> Result<(), String> {
-    let mut text_injector = state.text_injector.lock().expect("Failed to lock text_injector");
+    let mut text_injector = state
+        .text_injector
+        .lock()
+        .expect("Failed to lock text_injector");
     // 15ms delay is chosen as a sweet spot between perceived instant typing
     // and reliability across different target applications (some drop keystrokes if too fast).
     text_injector.type_text(&text, 15)?;
@@ -81,7 +100,10 @@ fn update_whisper_url(url: String, state: State<AppState>) -> Result<(), String>
 
     drop(config);
 
-    let mut whisper_client = state.whisper_client.lock().expect("Failed to lock whisper_client");
+    let mut whisper_client = state
+        .whisper_client
+        .lock()
+        .expect("Failed to lock whisper_client");
     whisper_client.set_url(url);
 
     Ok(())
@@ -90,14 +112,21 @@ fn update_whisper_url(url: String, state: State<AppState>) -> Result<(), String>
 #[tauri::command]
 async fn agent_prompt(prompt: String, state: State<'_, AppState>) -> Result<String, String> {
     {
-        let mut agent_manager = state.agent_manager.lock().expect("Failed to lock agent_manager");
+        let mut agent_manager = state
+            .agent_manager
+            .lock()
+            .expect("Failed to lock agent_manager");
         if !agent_manager.is_running() {
             agent_manager.start()?;
         }
     }
 
     let agent_manager = {
-        state.agent_manager.lock().expect("Failed to lock agent_manager").clone()
+        state
+            .agent_manager
+            .lock()
+            .expect("Failed to lock agent_manager")
+            .clone()
     };
     let response = agent_manager.send_prompt(&prompt).await?;
     Ok(response.response)
@@ -137,6 +166,8 @@ pub fn run() {
     let whisper_url = config.whisper_url.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
@@ -146,9 +177,14 @@ pub fn run() {
 
             // Initialize the audio stream permanently (zero-latency recording)
             {
-                let audio_manager_init = audio_manager.lock().expect("Failed to lock audio manager for initialization");
+                let audio_manager_init = audio_manager
+                    .lock()
+                    .expect("Failed to lock audio manager for initialization");
                 if let Err(e) = audio_manager_init.initialize_stream(app.handle().clone()) {
-                    eprintln!("⚠️  Warning: Failed to initialize audio stream on startup: {}", e);
+                    eprintln!(
+                        "⚠️  Warning: Failed to initialize audio stream on startup: {}",
+                        e
+                    );
                     eprintln!("📝 The stream will be initialized on first recording instead.");
                 }
             }
@@ -187,7 +223,7 @@ pub fn run() {
 
                     if let Some(window) = app_handle.get_webview_window("recording") {
                         let _ = window.show();
-                        // Position window after showing to ensure current_monitor() targets the correct display 
+                        // Position window after showing to ensure current_monitor() targets the correct display
                         // where the window natively spawned, rather than falling back prematurely.
                         position_recording_window(&window);
                     }
@@ -213,7 +249,9 @@ pub fn run() {
 
                 tauri::async_runtime::spawn(async move {
                     let audio_data: Vec<u8> = {
-                        let mut audio_manager = audio_manager_bg.lock().expect("Failed to lock audio manager (async)");
+                        let mut audio_manager = audio_manager_bg
+                            .lock()
+                            .expect("Failed to lock audio manager (async)");
                         match audio_manager.stop_recording() {
                             Ok(data) => data,
                             Err(e) => {
@@ -226,7 +264,10 @@ pub fn run() {
                     eprintln!("📝 Transcribing {} bytes of audio...", audio_data.len());
 
                     let text = {
-                        let whisper_client = whisper_client_bg.lock().expect("Failed to lock whisper client (async)").clone();
+                        let whisper_client = whisper_client_bg
+                            .lock()
+                            .expect("Failed to lock whisper client (async)")
+                            .clone();
                         match whisper_client.transcribe(&audio_data).await {
                             Ok(t) => t,
                             Err(e) => {
@@ -238,7 +279,9 @@ pub fn run() {
 
                     eprintln!("✅ Transcription: \"{}\"", text);
 
-                    let mut text_injector = text_injector_bg.lock().expect("Failed to lock text injector (async)");
+                    let mut text_injector = text_injector_bg
+                        .lock()
+                        .expect("Failed to lock text injector (async)");
                     if let Err(e) = text_injector.type_text(&text, 15) {
                         eprintln!("❌ Failed to inject text: {}", e);
                     } else {
@@ -265,6 +308,3 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-
-
-

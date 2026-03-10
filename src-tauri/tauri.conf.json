@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Speech-2-Text",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "identifier": "com.speech2text.app",
   "build": {
     "beforeDevCommand": "bun run dev",
@@ -55,6 +55,12 @@
   "plugins": {
     "shell": {
       "open": "^.*powershell.*$"
+    },
+    "updater": {
+      "endpoints": [
+        "https://github.com/parthashirolkar/shuddhalekhan/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM3OUQ2ODA3NTYwODgyMTgKUldRWWdnaFdCMmlkTjJtZGt1Tk9aWXBHR08yZXl0QXMwQncxYStIcTU0eHV1MmkvWkFHQmlCWTQK"
     }
   }
 }

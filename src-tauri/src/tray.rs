@@ -25,16 +25,17 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let select_device_submenu = device_submenu.build()?;
 
     let separator = PredefinedMenuItem::separator(app)?;
+    let check_update_item = MenuItem::with_id(app, "check_update", "Check for Updates", true, None::<&str>)?;
     let exit_item = MenuItem::with_id(app, "exit", "Exit", true, Some("cmd+q"))?;
 
     // Create menu
-    let menu = Menu::with_items(app, &[&select_device_submenu, &separator, &exit_item])?;
+    let menu = Menu::with_items(app, &[&select_device_submenu, &separator, &check_update_item, &exit_item])?;
 
     // Build tray icon
     #[cfg(target_os = "windows")]
     let tray_icon = Image::from_bytes(include_bytes!("../icons/tray-icon.ico"))
         .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
-        
+
     #[cfg(not(target_os = "windows"))]
     let tray_icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))
         .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
@@ -60,6 +61,68 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                 if let Ok(mut config) = config_arc.lock() {
                     let _ = config.update_selected_device(device_name);
                 };
+            } else if id == "check_update" {
+                let app_handle = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    use tauri_plugin_updater::UpdaterExt;
+                    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+
+                    match app_handle.updater() {
+                        Ok(updater) => {
+                            match updater.check().await {
+                                Ok(Some(update)) => {
+                                    let message = format!(
+                                        "Version {} is available. Do you want to download and install it?",
+                                        update.version
+                                    );
+                                    let should_update = app_handle
+                                        .dialog()
+                                        .message(message)
+                                        .title("Update Available")
+                                        .kind(MessageDialogKind::Info)
+                                        .buttons(MessageDialogButtons::OkCancel)
+                                        .blocking_show();
+
+                                    if should_update {
+                                        match update.download_and_install(|_, _| {}, || {}).await {
+                                            Ok(_) => {
+                                                app_handle.restart();
+                                            }
+                                            Err(e) => {
+                                                app_handle.dialog()
+                                                    .message(format!("Failed to install update: {}", e))
+                                                    .title("Update Error")
+                                                    .kind(MessageDialogKind::Error)
+                                                    .blocking_show();
+                                            }
+                                        }
+                                    }
+                                }
+                                Ok(None) => {
+                                    app_handle.dialog()
+                                        .message("You are on the latest version.")
+                                        .title("Check for Updates")
+                                        .kind(MessageDialogKind::Info)
+                                        .blocking_show();
+                                }
+                                Err(e) => {
+                                    app_handle.dialog()
+                                        .message(format!("Failed to check for updates: {}", e))
+                                        .title("Update Error")
+                                        .kind(MessageDialogKind::Error)
+                                        .blocking_show();
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            app_handle.dialog()
+                                .message(format!("Failed to initialize updater: {}", e))
+                                .title("Update Error")
+                                .kind(MessageDialogKind::Error)
+                                .blocking_show();
+                        }
+                    }
+                });
             } else if id == "exit" {
                 app.exit(0);
             }
