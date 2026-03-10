@@ -57,7 +57,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
 
-        // Update device in config
+                // Update device in config
                 if let Ok(mut config) = config_arc.lock() {
                     let _ = config.update_selected_device(device_name);
                 };
@@ -84,8 +84,18 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                                         .blocking_show();
 
                                     if should_update {
-                                        let _ = update.download_and_install(|_, _| {}, || {}).await;
-                                        app_handle.restart();
+                                        match update.download_and_install(|_, _| {}, || {}).await {
+                                            Ok(_) => {
+                                                app_handle.restart();
+                                            }
+                                            Err(e) => {
+                                                app_handle.dialog()
+                                                    .message(format!("Failed to install update: {}", e))
+                                                    .title("Update Error")
+                                                    .kind(MessageDialogKind::Error)
+                                                    .blocking_show();
+                                            }
+                                        }
                                     }
                                 }
                                 Ok(None) => {

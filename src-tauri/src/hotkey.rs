@@ -82,29 +82,39 @@ fn handle_key_press(key: Key, state: &Arc<Mutex<ModifierState>>, app: &AppHandle
         return;
     }
 
+    let mut should_start_agent = false;
+    let mut should_start_record = false;
+
     if st.ctrl_pressed && st.win_pressed && st.alt_pressed {
-        info!("Ctrl+Win+Alt pressed — Starting agent mode");
-        let _ = app.emit("agent-mode-started", ());
         st.is_recording = true;
         st.is_agent_mode = true;
+        should_start_agent = true;
     } else if st.ctrl_pressed && st.win_pressed {
+        st.is_recording = true;
+        should_start_record = true;
+    }
+
+    drop(st); // Drop lock before emitting
+
+    if should_start_agent {
+        info!("Ctrl+Win+Alt pressed — Starting agent mode");
+        let _ = app.emit("agent-mode-started", ());
+    } else if should_start_record {
         info!("Ctrl+Win pressed — Starting recording");
         let _ = app.emit("recording-started", ());
-        st.is_recording = true;
     }
 }
 
 fn handle_key_release(key: Key, state: &Arc<Mutex<ModifierState>>, app: &AppHandle) {
     let mut st = state.lock().expect("Failed to lock modifier state");
+    let mut should_stop_recording = false;
 
     match key {
         Key::ControlLeft | Key::ControlRight => {
             st.ctrl_pressed = false;
             if st.is_recording {
                 info!("Ctrl released — Stopping recording");
-                let _ = app.emit("recording-stopped", false);
-                st.is_recording = false;
-                st.is_agent_mode = false;
+                should_stop_recording = true;
             }
         }
         Key::MetaLeft | Key::MetaRight => {
@@ -113,20 +123,23 @@ fn handle_key_release(key: Key, state: &Arc<Mutex<ModifierState>>, app: &AppHand
             // Stop recording if Ctrl is also released or not held
             if st.is_recording && !st.ctrl_pressed {
                 info!("Win released (Ctrl not held) — Stopping recording");
-                let _ = app.emit("recording-stopped", false);
-                st.is_recording = false;
-                st.is_agent_mode = false;
+                should_stop_recording = true;
             }
         }
         Key::Alt | Key::AltGr => {
             st.alt_pressed = false;
             if st.is_recording && st.is_agent_mode {
                 info!("Alt released — Stopping agent mode recording");
-                let _ = app.emit("recording-stopped", false);
-                st.is_recording = false;
-                st.is_agent_mode = false;
+                should_stop_recording = true;
             }
         }
         _ => {}
+    }
+
+    if should_stop_recording {
+        st.is_recording = false;
+        st.is_agent_mode = false;
+        drop(st); // Drop lock before emitting
+        let _ = app.emit("recording-stopped", false);
     }
 }

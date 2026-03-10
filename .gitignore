@@ -46,4 +46,6 @@ CLAUDE.md
 GEMINI.md
 
 # Tauri updater key
-~/.tauri/*
+.tauri/
+*.key
+*.key.pub
