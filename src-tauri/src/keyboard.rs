@@ -1,47 +1,19 @@
-use enigo::{Direction, Enigo, Key, Keyboard, Settings};
-use std::thread;
-use std::time::Duration;
+use winput::Vk;
 
-pub struct TextInjector {
-    enigo: Enigo,
-}
+pub struct TextInjector;
 
 impl TextInjector {
     pub fn new() -> Result<Self, String> {
-        let settings = Settings::default();
-        let enigo =
-            Enigo::new(&settings).map_err(|e| format!("Failed to initialize enigo: {:?}", e))?;
-
-        Ok(Self { enigo })
+        Ok(Self)
     }
 
-    pub fn type_text(&mut self, text: &str, delay_ms: u64) -> Result<(), String> {
+    pub fn type_text(&mut self, text: &str, _delay_ms: u64) -> Result<(), String> {
         // Replace newlines with spaces to avoid accidental Enter keypresses
         let sanitized_text = text.replace(['\n', '\r'], " ");
-        eprintln!("🔤 Typing text (char-by-char): \"{}\"", sanitized_text);
+        eprintln!("🔤 Typing text (fast injection): \"{}\"", sanitized_text);
 
-        // Character-by-character for reliability (enigo.text() is buggy on Windows)
-        #[cfg(target_os = "windows")]
-        for c in sanitized_text.chars() {
-            if c == ' ' {
-                self.enigo
-                    .key(Key::Space, Direction::Press)
-                    .map_err(|e| format!("Failed to press space: {:?}", e))?;
-                self.enigo
-                    .key(Key::Space, Direction::Release)
-                    .map_err(|e| format!("Failed to release space: {:?}", e))?;
-            } else {
-                self.enigo
-                    .text(&c.to_string())
-                    .map_err(|e| format!("Failed to type character '{}': {:?}", c, e))?;
-            }
-            thread::sleep(Duration::from_millis(delay_ms));
-        }
-
-        #[cfg(not(target_os = "windows"))]
-        self.enigo
-            .text(&sanitized_text)
-            .map_err(|e| format!("Failed to type text: {:?}", e))?;
+        // Synthesizes keystrokes following the given string reference.
+        winput::send_str(&sanitized_text);
 
         eprintln!("✅ Text injection complete");
         Ok(())
@@ -50,13 +22,9 @@ impl TextInjector {
     pub fn type_text_with_newline(&mut self, text: &str, delay_ms: u64) -> Result<(), String> {
         self.type_text(text, delay_ms)?;
 
-        thread::sleep(Duration::from_millis(delay_ms));
-        self.enigo
-            .key(Key::Return, Direction::Press)
-            .map_err(|e| format!("Failed to press enter: {:?}", e))?;
-        self.enigo
-            .key(Key::Return, Direction::Release)
-            .map_err(|e| format!("Failed to release enter: {:?}", e))?;
+        // Small delay before pressing Enter
+        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        winput::send(Vk::Enter);
 
         Ok(())
     }
