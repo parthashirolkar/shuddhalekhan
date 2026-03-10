@@ -40,6 +40,8 @@ jobs:
         uses: mikepenz/release-changelog-builder-action@v4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          failOnError: false
 
       - name: Build and Release Tauri App
         uses: tauri-apps/tauri-action@v0
