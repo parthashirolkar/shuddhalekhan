@@ -1,6 +1,6 @@
 [package]
 name = "speech-2-text"
-version = "2.1.1"
+version = "2.2.0"
 description = "Speech-to-text system tray application using Tauri"
 authors = ["you"]
 edition = "2021"
