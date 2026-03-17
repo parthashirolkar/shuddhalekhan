@@ -9,6 +9,7 @@ pub struct Config {
     pub selected_device: Option<String>,
     pub recording_hotkey_modifiers: Vec<String>,
     pub agent_mode_enabled: bool,
+    pub remove_filler_words: bool,
 }
 
 impl Default for Config {
@@ -18,6 +19,7 @@ impl Default for Config {
             selected_device: None,
             recording_hotkey_modifiers: vec!["control".to_string(), "win".to_string()],
             agent_mode_enabled: false,
+            remove_filler_words: true,
         }
     }
 }
@@ -75,6 +77,11 @@ impl Config {
 
     pub fn update_whisper_url(&mut self, url: String) -> Result<(), String> {
         self.whisper_url = url;
+        self.save()
+    }
+
+    pub fn update_remove_filler_words(&mut self, enabled: bool) -> Result<(), String> {
+        self.remove_filler_words = enabled;
         self.save()
     }
 }
