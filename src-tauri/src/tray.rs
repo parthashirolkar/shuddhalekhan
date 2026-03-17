@@ -1,6 +1,6 @@
 use crate::AppState;
 use tauri::image::Image;
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, SubmenuBuilder};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, SubmenuBuilder, CheckMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager};
 
@@ -25,11 +25,27 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let select_device_submenu = device_submenu.build()?;
 
     let separator = PredefinedMenuItem::separator(app)?;
+    
+    // Get current config state for clean transcription setting
+    let clean_transcription_enabled = {
+        let config = state.config.lock().unwrap();
+        config.remove_filler_words
+    };
+
+    let clean_transcription_item = CheckMenuItem::with_id(
+        app,
+        "clean_transcription",
+        "Clean Transcription",
+        true,
+        clean_transcription_enabled,
+        None::<&str>,
+    )?;
+
     let check_update_item = MenuItem::with_id(app, "check_update", "Check for Updates", true, None::<&str>)?;
     let exit_item = MenuItem::with_id(app, "exit", "Exit", true, Some("cmd+q"))?;
 
     // Create menu
-    let menu = Menu::with_items(app, &[&select_device_submenu, &separator, &check_update_item, &exit_item])?;
+    let menu = Menu::with_items(app, &[&select_device_submenu, &separator, &clean_transcription_item, &check_update_item, &exit_item])?;
 
     // Build tray icon
     #[cfg(target_os = "windows")]
@@ -43,7 +59,9 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let _tray = TrayIconBuilder::new()
         .icon(tray_icon)
         .menu(&menu)
-        .on_menu_event(move |app, event| {
+        .on_menu_event({
+            let clean_transcription_item = clean_transcription_item.clone();
+            move |app, event| {
             let id = event.id().as_ref();
             if id.starts_with("device_") {
                 let device_name = id.trim_start_matches("device_").to_string();
@@ -60,6 +78,20 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                 // Update device in config
                 if let Ok(mut config) = config_arc.lock() {
                     let _ = config.update_selected_device(device_name);
+                };
+            } else if id == "clean_transcription" {
+                let config_arc = app.state::<AppState>().config.clone();
+
+                // Toggle the setting
+                if let Ok(mut config) = config_arc.lock() {
+                    let new_state = !config.remove_filler_words;
+                    if let Err(e) = config.update_remove_filler_words(new_state) {
+                        eprintln!("Failed to update clean transcription setting: {}", e);
+                    } else {
+                        if let Err(e) = clean_transcription_item.set_checked(new_state) {
+                            eprintln!("Failed to update menu item checked state: {}", e);
+                        }
+                    }
                 };
             } else if id == "check_update" {
                 let app_handle = app.clone();
@@ -126,6 +158,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             } else if id == "exit" {
                 app.exit(0);
             }
+        }
         })
         .build(app)?;
 

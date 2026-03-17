@@ -63,6 +63,11 @@ async fn stop_recording(state: State<'_, AppState>) -> Result<String, String> {
         audio_manager.stop_recording()?
     };
 
+    let remove_filler_words = {
+        let config = state.config.lock().expect("Failed to lock config");
+        config.remove_filler_words
+    };
+
     let whisper_client = {
         state
             .whisper_client
@@ -70,7 +75,13 @@ async fn stop_recording(state: State<'_, AppState>) -> Result<String, String> {
             .expect("Failed to lock whisper_client")
             .clone()
     };
-    let text = whisper_client.transcribe(&audio_data).await?;
+    let text = whisper_client.transcribe(&audio_data, remove_filler_words).await?;
+
+    let text = if remove_filler_words {
+        whisper::clean_filler_words(&text)
+    } else {
+        text
+    };
 
     Ok(text)
 }
@@ -236,6 +247,7 @@ pub fn run() {
             });
 
             let app_handle_stop = app_handle.clone();
+            let config_for_stop = app.state::<AppState>().config.clone();
             let _ = app.listen("recording-stopped", move |_event| {
                 eprintln!("🛑 Recording stopped event received");
 
@@ -246,6 +258,7 @@ pub fn run() {
                 let audio_manager_bg = audio_manager_stop.clone();
                 let whisper_client_bg = whisper_client_stop.clone();
                 let text_injector_bg = text_injector_stop.clone();
+                let config_bg = config_for_stop.clone();
 
                 tauri::async_runtime::spawn(async move {
                     let audio_data: Vec<u8> = {
@@ -263,18 +276,29 @@ pub fn run() {
 
                     eprintln!("📝 Transcribing {} bytes of audio...", audio_data.len());
 
+                    let remove_filler_words = {
+                        let config = config_bg.lock().expect("Failed to lock config (async)");
+                        config.remove_filler_words
+                    };
+
                     let text = {
                         let whisper_client = whisper_client_bg
                             .lock()
                             .expect("Failed to lock whisper client (async)")
                             .clone();
-                        match whisper_client.transcribe(&audio_data).await {
+                        match whisper_client.transcribe(&audio_data, remove_filler_words).await {
                             Ok(t) => t,
                             Err(e) => {
                                 eprintln!("❌ Transcription failed: {}", e);
                                 return;
                             }
                         }
+                    };
+
+                    let text = if remove_filler_words {
+                        whisper::clean_filler_words(&text)
+                    } else {
+                        text
                     };
 
                     eprintln!("✅ Transcription: \"{}\"", text);

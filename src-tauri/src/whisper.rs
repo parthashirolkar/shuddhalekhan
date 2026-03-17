@@ -1,6 +1,8 @@
 use reqwest::{multipart, Client};
 use serde::Deserialize;
 use std::time::Duration;
+use regex::Regex;
+use once_cell::sync::Lazy;
 
 #[derive(Debug, Deserialize)]
 pub struct WhisperResponse {
@@ -23,16 +25,20 @@ impl WhisperClient {
         Ok(Self { client, url })
     }
 
-    pub async fn transcribe(&self, audio_data: &[u8]) -> Result<String, String> {
+    pub async fn transcribe(&self, audio_data: &[u8], remove_filler_words: bool) -> Result<String, String> {
         let part = multipart::Part::bytes(audio_data.to_vec())
             .file_name("audio.wav")
             .mime_str("audio/wav")
             .map_err(|e| format!("Failed to create mime part: {}", e))?;
 
-        let form = multipart::Form::new()
+        let mut form = multipart::Form::new()
             .part("file", part)
             .text("temperature", "0.2")
             .text("response_format", "json");
+
+        if remove_filler_words {
+            form = form.text("prompt", "The following is a clear, formal transcript without any stutters, repetitions, or filler words like um and ah.");
+        }
 
         let response = self
             .client
@@ -62,4 +68,32 @@ impl WhisperClient {
     pub fn set_url(&mut self, url: String) {
         self.url = url;
     }
+}
+
+static FILLER_WORDS_PATTERN: Lazy<Regex> = Lazy::new(|| 
+    Regex::new(r"(?i)\b(um|uh|ah|er|hmm)\b\.?").unwrap()
+);
+
+static DOUBLE_SPACE: Lazy<Regex> = Lazy::new(|| 
+    Regex::new(r"\s+").unwrap()
+);
+
+static LEADING_TRAILING_SPACE: Lazy<Regex> = Lazy::new(|| 
+    Regex::new(r"^\s+|\s+$").unwrap()
+);
+
+static PUNCTUATION_FIX: Lazy<Regex> = Lazy::new(|| 
+    Regex::new(r"\s+([.,!?;])").unwrap()
+);
+
+pub fn clean_filler_words(text: &str) -> String {
+    let mut cleaned = FILLER_WORDS_PATTERN.replace_all(text, "").to_string();
+    
+    cleaned = DOUBLE_SPACE.replace_all(&cleaned, " ").to_string();
+    
+    cleaned = LEADING_TRAILING_SPACE.replace_all(&cleaned, "").to_string();
+    
+    cleaned = PUNCTUATION_FIX.replace_all(&cleaned, "$1").to_string();
+    
+    cleaned
 }
