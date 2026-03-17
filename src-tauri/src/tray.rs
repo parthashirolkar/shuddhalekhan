@@ -88,7 +88,9 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     if let Err(e) = config.update_remove_filler_words(new_state) {
                         eprintln!("Failed to update clean transcription setting: {}", e);
                     } else {
-                        let _ = clean_transcription_item.set_checked(new_state);
+                        if let Err(e) = clean_transcription_item.set_checked(new_state) {
+                            eprintln!("Failed to update menu item checked state: {}", e);
+                        }
                     }
                 };
             } else if id == "check_update" {

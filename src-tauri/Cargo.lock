@@ -3870,6 +3870,7 @@ dependencies = [
  "cpal",
  "dasp_interpolate",
  "dirs 5.0.1",
+ "once_cell",
  "rdev",
  "regex",
  "reqwest 0.12.28",

@@ -2,6 +2,7 @@ use reqwest::{multipart, Client};
 use serde::Deserialize;
 use std::time::Duration;
 use regex::Regex;
+use once_cell::sync::Lazy;
 
 #[derive(Debug, Deserialize)]
 pub struct WhisperResponse {
@@ -69,18 +70,30 @@ impl WhisperClient {
     }
 }
 
+static FILLER_WORDS_PATTERN: Lazy<Regex> = Lazy::new(|| 
+    Regex::new(r"(?i)\b(um|uh|ah|er|hmm)\b\.?").unwrap()
+);
+
+static DOUBLE_SPACE: Lazy<Regex> = Lazy::new(|| 
+    Regex::new(r"\s+").unwrap()
+);
+
+static LEADING_TRAILING_SPACE: Lazy<Regex> = Lazy::new(|| 
+    Regex::new(r"^\s+|\s+$").unwrap()
+);
+
+static PUNCTUATION_FIX: Lazy<Regex> = Lazy::new(|| 
+    Regex::new(r"\s+([.,!?;])").unwrap()
+);
+
 pub fn clean_filler_words(text: &str) -> String {
-    let filler_words_pattern = Regex::new(r"(?i)\b(um|uh|ah|er|hmm|mm)\b\.?").unwrap();
-    let mut cleaned = filler_words_pattern.replace_all(text, "").to_string();
+    let mut cleaned = FILLER_WORDS_PATTERN.replace_all(text, "").to_string();
     
-    let double_space = Regex::new(r"\s+").unwrap();
-    cleaned = double_space.replace_all(&cleaned, " ").to_string();
+    cleaned = DOUBLE_SPACE.replace_all(&cleaned, " ").to_string();
     
-    let leading_trailing_space = Regex::new(r"^\s+|\s+$").unwrap();
-    cleaned = leading_trailing_space.replace_all(&cleaned, "").to_string();
+    cleaned = LEADING_TRAILING_SPACE.replace_all(&cleaned, "").to_string();
     
-    let punctuation_fix = Regex::new(r"\s+([.,!?;])").unwrap();
-    cleaned = punctuation_fix.replace_all(&cleaned, "$1").to_string();
+    cleaned = PUNCTUATION_FIX.replace_all(&cleaned, "$1").to_string();
     
     cleaned
 }
