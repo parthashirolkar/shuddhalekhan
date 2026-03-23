@@ -1,19 +1,21 @@
 import './ApprovalPopup.css';
 
+type ToolArgs = Record<string, string | number | boolean | null | undefined>;
+
 interface ApprovalPopupProps {
   tool: string;
-  args: any;
+  args: ToolArgs;
   onApprove: () => void;
   onDeny: () => void;
   queueCount?: number;
 }
 
 // Format tool args into a clean property list
-function formatArgs(args: any): { label: string; value: string }[] {
+function formatArgs(args: ToolArgs): { label: string; value: string }[] {
   if (!args || typeof args !== 'object') return [];
-  
+
   const properties: { label: string; value: string }[] = [];
-  
+
   for (const [key, val] of Object.entries(args)) {
     if (val === undefined || val === null) continue;
     
@@ -42,22 +44,22 @@ function formatArgs(args: any): { label: string; value: string }[] {
 }
 
 // Get a human-readable description of the action
-function getActionDescription(tool: string, args: any): string {
+function getActionDescription(tool: string, args: ToolArgs): string {
   if (tool === 'system_settings' && args?.setting === 'volume') {
     const action = args?.action;
     const level = args?.level;
     const amount = args?.amount;
-    
+
     switch (action) {
       case 'set':
         return level !== undefined ? `Set volume to ${level}%` : 'Set volume';
       case 'increase':
-        return amount !== undefined 
-          ? `Increase volume by ${amount}%` 
+        return amount !== undefined
+          ? `Increase volume by ${amount}%`
           : 'Increase volume';
       case 'decrease':
-        return amount !== undefined 
-          ? `Decrease volume by ${amount}%` 
+        return amount !== undefined
+          ? `Decrease volume by ${amount}%`
           : 'Decrease volume';
       case 'mute':
       case 'unmute':
@@ -67,16 +69,16 @@ function getActionDescription(tool: string, args: any): string {
         return 'Adjust volume';
     }
   }
-  
+
   if (tool === 'open_application') {
     const appName = args?.app_name;
     return appName ? `Open ${appName}` : 'Open application';
   }
-  
+
   if (tool === 'take_screenshot') {
     return 'Take screenshot';
   }
-  
+
   return tool.replace(/_/g, ' ');
 }
 

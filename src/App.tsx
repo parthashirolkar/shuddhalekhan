@@ -1,16 +1,18 @@
 import { RecordingPopupNoState } from './RecordingPopup';
 import { ApprovalPopup } from './ApprovalPopup';
 import { AgentResponsePopup } from './AgentResponsePopup';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { listen, emit } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import './App.css';
 
+type ToolArgs = Record<string, string | number | boolean | null | undefined>;
+
 interface ApprovalRequest {
   id: string;
   tool: string;
-  args: any;
+  args: ToolArgs;
 }
 
 function App() {
@@ -56,6 +58,12 @@ function App() {
     setApprovalQueue(prev => prev.slice(1));
   }, [approvalQueue]);
 
+  // Use a ref to avoid re-registering listeners when addApprovalRequest changes
+  // addApprovalRequest is stable (created with useCallback), but using a ref
+  // ensures we always have the latest reference without causing re-registrations
+  const addApprovalRequestRef = useRef(addApprovalRequest);
+  addApprovalRequestRef.current = addApprovalRequest;
+
   useEffect(() => {
     const unlistenAgentResponse = listen<string>('agent-response', (event) => {
       setAgentResponse(event.payload);
@@ -63,14 +71,16 @@ function App() {
     });
 
     const unlistenApproval = listen<ApprovalRequest>('tool-approval-requested', (event) => {
-      addApprovalRequest(event.payload);
+      addApprovalRequestRef.current(event.payload);
     });
 
     return () => {
       unlistenAgentResponse.then(fn => fn());
       unlistenApproval.then(fn => fn());
     };
-  }, [addApprovalRequest]);
+    // Empty dependency array - listeners are registered once and never re-registered
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Get the current request (first in queue)
   const currentRequest = approvalQueue[0];

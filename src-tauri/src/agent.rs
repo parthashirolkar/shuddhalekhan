@@ -9,6 +9,37 @@ use std::collections::HashMap;
 use tokio::sync::oneshot;
 use std::sync::Mutex;
 
+// Helper macro to reduce boilerplate for tool creation
+macro_rules! create_tool_with_approval {
+    ($name:expr, $desc:expr, $args_ty:ty, $self:expr, $app:expr, $tool_logic:expr) => {{
+        let pending = $self.pending_approvals.clone();
+        let ready = $self.approval_window_ready.clone();
+        let app_handle = $app.clone();
+        
+        FunctionTool::new(
+            $name,
+            $desc,
+            move |_ctx, args| {
+                let pending = pending.clone();
+                let ready = ready.clone();
+                let app_handle = app_handle.clone();
+                let args_val = args.clone();
+                let args_for_tool = args.clone();
+                
+                async move {
+                    if !request_approval(pending, ready, app_handle.clone(), $name, args_val).await {
+                        return Ok(serde_json::json!({ "status": "error", "message": "User denied execution" }));
+                    }
+
+                    println!("Executing tool: {} with args: {:?}", $name, args_for_tool);
+                    
+                    $tool_logic(&args_for_tool)
+                }
+            }
+        ).with_parameters_schema::<$args_ty>()
+    }};
+}
+
 // Tools
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
@@ -39,6 +70,8 @@ pub struct AgentManager {
     model_name: String,
     pub pending_approvals: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
     pub approval_window_ready: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    // Track the auto-hide timer for agent response window to prevent race conditions
+    agent_response_hide_timer: Arc<Mutex<Option<tokio::task::AbortHandle>>>,
 }
 
 async fn request_approval(
@@ -73,7 +106,13 @@ async fn request_approval(
 
     // Wait for approval window to be ready (with 2 second timeout)
     let ready_timeout = tokio::time::Duration::from_secs(2);
-    let _ = tokio::time::timeout(ready_timeout, &mut ready_rx).await;
+    if tokio::time::timeout(ready_timeout, &mut ready_rx).await.is_err() {
+        eprintln!("⚠️ Approval window not ready within {} second timeout", ready_timeout.as_secs());
+        // Clean up the pending approval
+        let mut map = pending_approvals.lock().unwrap();
+        map.remove(&id);
+        return false;
+    }
 
     let _ = app.emit("tool-approval-requested", serde_json::json!({
         "id": id,
@@ -81,14 +120,31 @@ async fn request_approval(
         "args": args
     }));
 
-    let approved = rx.await.unwrap_or(false);
-    
-    // Wait a bit after approval is resolved to allow the window to close
+    // Wait for user approval with a 5-minute timeout
+    let approval_timeout = tokio::time::Duration::from_secs(300);
+    let approved = match tokio::time::timeout(approval_timeout, rx).await {
+        Ok(result) => result.unwrap_or(false),
+        Err(_) => {
+            eprintln!("⚠️ Approval request {} timed out after {} seconds", id, approval_timeout.as_secs());
+            false
+        }
+    };
+
+    // Clean up the pending approval entry (always remove it, whether approved or timed out)
+    {
+        let mut map = pending_approvals.lock().unwrap();
+        map.remove(&id);
+    }
+
+    // After approval, hide the window immediately and wait briefly for it to disappear
     // This ensures screenshots and other tools don't capture the approval window
     if approved {
-        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+        if let Some(approval_window) = app.get_webview_window("approval") {
+            let _ = approval_window.hide();
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     }
-    
+
     approved
 }
 
@@ -158,7 +214,27 @@ fn resolve_and_launch(input: &str) -> std::result::Result<String, String> {
         }
     }
 
-    // 4. Fallback: try raw input with default handler
+    // 4. Only allow whitelisted local applications
+    const ALLOWED_APPS: &[&str] = &[
+        "notepad", "calc", "calculator", "explorer", "cmd", "settings",
+        "control panel", "mspaint", "paint", "wordpad", "powershell",
+        "terminal", "wt", "snippingtool", "taskmgr", "regedit",
+        "devmgmt", "appwiz.cpl", "inetcpl.cpl", "msinfo32", "dxdiag",
+        "notepad++", "code", "vscode", "sublime", "atom",
+        "chrome", "firefox", "edge", "brave", "opera", "safari",
+        "spotify", "discord", "slack", "teams", "zoom",
+        "file", "files", "file explorer", "this pc"
+    ];
+    
+    if !ALLOWED_APPS.iter().any(|&app| input_lower == app || input_lower.starts_with(&format!("{}.", app))) {
+        return Err(format!(
+            "'{}' is not in the allowed local applications list. \
+            This action is restricted for security reasons.",
+            input_trimmed
+        ));
+    }
+
+    // 5. Execute whitelisted local application
     open::that(input_trimmed).map_err(|e| format!("Failed to open {}: {}", input_trimmed, e))?;
     Ok(format!("Opened: {}", input_trimmed))
 }
@@ -170,6 +246,7 @@ impl AgentManager {
             model_name: "functiongemma".to_string(),
             pending_approvals: Arc::new(Mutex::new(HashMap::new())),
             approval_window_ready: Arc::new(Mutex::new(None)),
+            agent_response_hide_timer: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -203,176 +280,143 @@ impl AgentManager {
         eprintln!("✅ OllamaModel initialized");
 
         // Instantiate tools via FunctionTool
-        let pending = self.pending_approvals.clone();
-        let ready = self.approval_window_ready.clone();
         eprintln!("🔧 Creating tools...");
-        let app_clone = app.clone();
-        let open_app_tool = FunctionTool::new(
+        let open_app_tool = create_tool_with_approval!(
             "open_application",
             "Open an application or run a command",
-            move |_ctx, args| {
+            OpenAppArgs,
+            self,
+            app,
+            |args: &serde_json::Value| {
                 let app_name = args.get("app_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let pending = pending.clone();
-                let ready = ready.clone();
-                let app_handle = app_clone.clone();
-                let args_val = args.clone();
-                
-                async move {
-                    if !request_approval(pending, ready, app_handle, "open_application", args_val).await {
-                        return Ok(serde_json::json!({ "status": "error", "message": "User denied execution" }));
-                    }
-
-                    println!("Executing tool: open_application with args: {:?}", app_name);
-
-                    match resolve_and_launch(&app_name) {
-                        Ok(message) => Ok(serde_json::json!({ "status": "success", "message": message })),
-                        Err(e) => Ok(serde_json::json!({ "status": "error", "message": format!("Failed to open {}: {}", app_name, e) })),
-                    }
+                match resolve_and_launch(&app_name) {
+                    Ok(message) => Ok(serde_json::json!({ "status": "success", "message": message })),
+                    Err(e) => Ok(serde_json::json!({ "status": "error", "message": format!("Failed to open {}: {}", app_name, e) })),
                 }
             }
-        ).with_parameters_schema::<OpenAppArgs>();
+        );
 
-        let pending = self.pending_approvals.clone();
-        let ready = self.approval_window_ready.clone();
-        let app_clone = app.clone();
-        let sys_set_tool = FunctionTool::new(
+        let sys_set_tool = create_tool_with_approval!(
             "system_settings",
-            "Adjust the system volume. IMPORTANT: Always set 'setting' to 'volume'. Use 'action' to specify what to do: 'set' (for exact level like 50%), 'increase' (to make louder), 'decrease' (to make quieter), or 'mute' (to toggle). Examples: setting='volume', action='set', level=50 OR setting='volume', action='increase', amount=20",
-            move |_ctx, args| {
+            "Adjust the system volume. IMPORTANT: Always set 'setting' to 'volume'. Use 'action' to specify what to do: 'set' (for exact level like 50%), 'increase' (to make louder), 'decrease' (to make quieter), or 'mute' (to toggle). NOTE: Volume control is only supported on Windows. Examples: setting='volume', action='set', level=50 OR setting='volume', action='increase', amount=20",
+            SystemSettingsArgs,
+            self,
+            app,
+            |args: &serde_json::Value| {
                 let setting = args.get("setting").and_then(|v| v.as_str()).unwrap_or("").to_string();
                 let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let pending = pending.clone();
-                let ready = ready.clone();
-                let app_handle = app_clone.clone();
-                let args_val = args.clone();
                 
-                async move {
-                    if !request_approval(pending, ready, app_handle, "system_settings", args_val).await {
-                        return Ok(serde_json::json!({ "status": "error", "message": "User denied execution" }));
-                    }
-
-                    println!("Executing tool: system_settings with setting: {}, action: {}", setting, action);
+                if setting.to_lowercase() == "volume" {
+                    use crate::volume;
+                    let action_lower = action.to_lowercase();
                     
-                    if setting.to_lowercase() == "volume" {
-                        use crate::volume;
-                        let action_lower = action.to_lowercase();
-                        
-                        match action_lower.as_str() {
-                            "increase" => {
-                                // Increase by specific amount if provided, default to 20%
-                                let amount = args.get("amount").and_then(|v| v.as_u64()).unwrap_or(20) as u32;
-                                match volume::increase_volume_by(amount) {
-                                    Ok(new_level) => Ok(serde_json::json!({ 
+                    match action_lower.as_str() {
+                        "increase" => {
+                            let amount = args.get("amount").and_then(|v| v.as_u64()).unwrap_or(20) as u32;
+                            match volume::increase_volume_by(amount) {
+                                Ok(new_level) => Ok(serde_json::json!({ 
+                                    "status": "success", 
+                                    "message": format!("Increased volume to {}%", new_level) 
+                                })),
+                                Err(e) => Ok(serde_json::json!({ 
+                                    "status": "error", 
+                                    "message": format!("Failed to increase volume: {}", e) 
+                                }))
+                            }
+                        },
+                        "decrease" => {
+                            let amount = args.get("amount").and_then(|v| v.as_u64()).unwrap_or(20) as u32;
+                            match volume::decrease_volume_by(amount) {
+                                Ok(new_level) => Ok(serde_json::json!({ 
+                                    "status": "success", 
+                                    "message": format!("Decreased volume to {}%", new_level) 
+                                })),
+                                Err(e) => Ok(serde_json::json!({ 
+                                    "status": "error", 
+                                    "message": format!("Failed to decrease volume: {}", e) 
+                                }))
+                            }
+                        },
+                        "mute" | "unmute" | "toggle" => {
+                            match volume::toggle_mute() {
+                                Ok(is_muted) => {
+                                    let status = if is_muted { "muted" } else { "unmuted" };
+                                    Ok(serde_json::json!({ 
                                         "status": "success", 
-                                        "message": format!("Increased volume to {}%", new_level) 
-                                    })),
-                                    Err(e) => Ok(serde_json::json!({ 
-                                        "status": "error", 
-                                        "message": format!("Failed to increase volume: {}", e) 
+                                        "message": format!("System {}", status) 
                                     }))
-                                }
-                            },
-                            "decrease" => {
-                                // Decrease by specific amount if provided, default to 20%
-                                let amount = args.get("amount").and_then(|v| v.as_u64()).unwrap_or(20) as u32;
-                                match volume::decrease_volume_by(amount) {
-                                    Ok(new_level) => Ok(serde_json::json!({ 
-                                        "status": "success", 
-                                        "message": format!("Decreased volume to {}%", new_level) 
-                                    })),
-                                    Err(e) => Ok(serde_json::json!({ 
-                                        "status": "error", 
-                                        "message": format!("Failed to decrease volume: {}", e) 
-                                    }))
-                                }
-                            },
-                            "mute" | "unmute" | "toggle" => {
-                                match volume::toggle_mute() {
-                                    Ok(is_muted) => {
-                                        let status = if is_muted { "muted" } else { "unmuted" };
-                                        Ok(serde_json::json!({ 
-                                            "status": "success", 
-                                            "message": format!("System {}", status) 
-                                        }))
-                                    },
-                                    Err(e) => Ok(serde_json::json!({ 
-                                        "status": "error", 
-                                        "message": format!("Failed to toggle mute: {}", e) 
-                                    }))
-                                }
-                            },
-                            "set" => {
-                                // Set to exact level
-                                let level = args.get("level").and_then(|v| v.as_u64()).unwrap_or(50).clamp(0, 100) as u32;
-                                match volume::set_volume(level) {
-                                    Ok(_) => Ok(serde_json::json!({ 
-                                        "status": "success", 
-                                        "message": format!("Volume set to exactly {}%", level) 
-                                    })),
-                                    Err(e) => Ok(serde_json::json!({ 
-                                        "status": "error", 
-                                        "message": format!("Failed to set volume: {}", e) 
-                                    }))
-                                }
-                            },
-                            _ => Ok(serde_json::json!({ 
-                                "status": "error", 
-                                "message": "Unknown action for volume. Use: increase, decrease, mute, unmute, toggle, or set" 
-                            }))
-                        }
-                    } else {
-                        Ok(serde_json::json!({ 
+                                },
+                                Err(e) => Ok(serde_json::json!({ 
+                                    "status": "error", 
+                                    "message": format!("Failed to toggle mute: {}", e) 
+                                }))
+                            }
+                        },
+                        "set" => {
+                            let level = args.get("level").and_then(|v| v.as_u64()).unwrap_or(50).clamp(0, 100) as u32;
+                            match volume::set_volume(level) {
+                                Ok(_) => Ok(serde_json::json!({ 
+                                    "status": "success", 
+                                    "message": format!("Volume set to exactly {}%", level) 
+                                })),
+                                Err(e) => Ok(serde_json::json!({ 
+                                    "status": "error", 
+                                    "message": format!("Failed to set volume: {}", e) 
+                                }))
+                            }
+                        },
+                        _ => Ok(serde_json::json!({ 
                             "status": "error", 
-                            "message": format!("Setting '{}' is not supported. Only 'volume' is currently available.", setting) 
+                            "message": "Unknown action for volume. Use: increase, decrease, mute, unmute, toggle, or set" 
                         }))
                     }
+                } else {
+                    Ok(serde_json::json!({ 
+                        "status": "error", 
+                        "message": format!("Setting '{}' is not supported. Only 'volume' is currently available.", setting) 
+                    }))
                 }
             }
-        ).with_parameters_schema::<SystemSettingsArgs>();
+        );
 
-        let pending = self.pending_approvals.clone();
-        let ready = self.approval_window_ready.clone();
-        let app_clone = app.clone();
-        let screen_tool = FunctionTool::new(
+        let screen_tool = create_tool_with_approval!(
             "take_screenshot",
             "Take a screenshot of the primary monitor and display it to the user. The image will open in the default image viewer. NOTE: You cannot see or analyze images - use this only when the user explicitly requests a screenshot be taken and shown to them.",
-            move |_ctx, args| {
-                let pending = pending.clone();
-                let ready = ready.clone();
-                let app_handle = app_clone.clone();
-                let args_val = args.clone();
-                
-                async move {
-                    if !request_approval(pending, ready, app_handle, "take_screenshot", args_val).await {
-                        return Ok(serde_json::json!({ "status": "error", "message": "User denied execution" }));
-                    }
-
-                    println!("Executing tool: take_screenshot");
-                    use xcap::Monitor;
-                    let monitors = Monitor::all().unwrap_or_default();
-                    if let Some(monitor) = monitors.first() {
-                        let image = monitor.capture_image();
-                        match image {
-                            Ok(img) => {
-                                let path = std::env::temp_dir().join("jarvis_screenshot.png");
-                                if let Err(e) = img.save(&path) {
-                                    return Ok(serde_json::json!({ "status": "error", "message": format!("Failed to save screenshot: {}", e) }));
-                                }
-                                
-                                // Open the saved screenshot
-                                let _ = open::that(&path);
-                                
-                                return Ok(serde_json::json!({ "status": "success", "message": format!("Screenshot saved to {:?}", path) }));
+            TakeScreenshotArgs,
+            self,
+            app,
+            |_args: &serde_json::Value| {
+                use xcap::Monitor;
+                let monitors = Monitor::all().unwrap_or_default();
+                if let Some(monitor) = monitors.first() {
+                    let image = monitor.capture_image();
+                    match image {
+                        Ok(img) => {
+                            let timestamp = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs();
+                            let filename = format!("jarvis_screenshot_{}.png", timestamp);
+                            let path = dirs::picture_dir()
+                                .unwrap_or_else(|| std::env::temp_dir())
+                                .join(&filename);
+                            
+                            if let Err(e) = img.save(&path) {
+                                return Ok(serde_json::json!({ "status": "error", "message": format!("Failed to save screenshot: {}", e) }));
                             }
-                            Err(e) => {
-                                return Ok(serde_json::json!({ "status": "error", "message": format!("Failed to capture screen: {}", e) }));
-                            }
+                            
+                            let _ = open::that(&path);
+                            
+                            return Ok(serde_json::json!({ "status": "success", "message": format!("Screenshot saved to {:?}", path) }));
+                        }
+                        Err(e) => {
+                            return Ok(serde_json::json!({ "status": "error", "message": format!("Failed to capture screen: {}", e) }));
                         }
                     }
-                    Ok(serde_json::json!({ "status": "error", "message": "No monitors found" }))
                 }
+                Ok(serde_json::json!({ "status": "error", "message": "No monitors found" }))
             }
-        ).with_parameters_schema::<TakeScreenshotArgs>();
+        );
 
         // Build Agent
         let agent = LlmAgentBuilder::new("jarvis")
@@ -484,15 +528,29 @@ impl AgentManager {
 
             let _ = response_window.show();
             let _ = response_window.set_always_on_top(true);
-            
-            // Auto-hide after 10 seconds
+
+            // Cancel any existing auto-hide timer to prevent race conditions
+            {
+                let mut timer_lock = self.agent_response_hide_timer.lock().unwrap();
+                if let Some(old_handle) = timer_lock.take() {
+                    old_handle.abort();
+                }
+            }
+
+            // Auto-hide after 10 seconds - store the handle to allow cancellation
             let app_clone = app.clone();
-            tokio::spawn(async move {
+            let timer_handle = tokio::spawn(async move {
                 tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
                 if let Some(window) = app_clone.get_webview_window("agent-response") {
                     let _ = window.hide();
                 }
             });
+
+            // Store the new timer handle
+            {
+                let mut timer_lock = self.agent_response_hide_timer.lock().unwrap();
+                *timer_lock = Some(timer_handle.abort_handle());
+            }
         }
         
         let _ = app.emit("agent-response", clean_response);
