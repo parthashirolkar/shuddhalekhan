@@ -7,15 +7,25 @@ impl TextInjector {
         Ok(Self)
     }
 
-    pub fn type_text(&mut self, text: &str, _delay_ms: u64) -> Result<(), String> {
+    pub fn type_text(&mut self, text: &str, delay_ms: u64) -> Result<(), String> {
         // Replace newlines with spaces to avoid accidental Enter keypresses
         let sanitized_text = text.replace(['\n', '\r'], " ");
-        eprintln!("🔤 Typing text (fast injection): \"{}\"", sanitized_text);
+        eprintln!("🔤 Typing text: \"{}\"", sanitized_text);
 
-        // Synthesizes keystrokes following the given string reference.
-        winput::send_str(&sanitized_text);
+        // Send characters one at a time with delay to prevent dropped keystrokes
+        // This is more reliable than send_str which sends all at once
+        let delay = std::time::Duration::from_millis(delay_ms);
+        for c in sanitized_text.chars() {
+            winput::send(c);
+            if delay_ms > 0 {
+                std::thread::sleep(delay);
+            }
+        }
 
-        eprintln!("✅ Text injection complete");
+        eprintln!(
+            "✅ Text injection complete: {} characters",
+            sanitized_text.len()
+        );
         Ok(())
     }
 

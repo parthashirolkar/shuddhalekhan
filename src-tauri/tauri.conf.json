@@ -35,6 +35,32 @@
         "resizable": false,
         "focusable": false,
         "shadow": false
+      },
+      {
+        "label": "approval",
+        "title": "Approval",
+        "width": 520,
+        "height": 400,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": false,
+        "resizable": false,
+        "center": true
+      },
+      {
+        "label": "agent-response",
+        "title": "Jarvis Response",
+        "width": 420,
+        "height": 120,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false
       }
     ],
     "security": {

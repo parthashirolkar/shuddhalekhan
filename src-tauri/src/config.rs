@@ -8,7 +8,6 @@ pub struct Config {
     pub whisper_url: String,
     pub selected_device: Option<String>,
     pub recording_hotkey_modifiers: Vec<String>,
-    pub agent_mode_enabled: bool,
     pub remove_filler_words: bool,
 }
 
@@ -18,7 +17,6 @@ impl Default for Config {
             whisper_url: "http://localhost:8080/inference".to_string(),
             selected_device: None,
             recording_hotkey_modifiers: vec!["control".to_string(), "win".to_string()],
-            agent_mode_enabled: false,
             remove_filler_words: true,
         }
     }
