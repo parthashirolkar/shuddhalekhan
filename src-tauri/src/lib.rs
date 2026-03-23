@@ -4,6 +4,7 @@ mod config;
 mod hotkey;
 mod keyboard;
 mod tray;
+mod volume;
 mod whisper;
 
 use agent::AgentManager;
@@ -143,6 +144,19 @@ async fn agent_prompt(prompt: String, state: State<'_, AppState>) -> Result<Stri
     Ok(response.response)
 }
 
+#[tauri::command]
+fn resolve_tool_approval(id: String, approved: bool, state: State<AppState>, app: AppHandle) -> Result<(), String> {
+    let agent_manager = state.agent_manager.lock().expect("Failed to lock agent_manager");
+    let result = agent_manager.resolve_approval(&id, approved);
+    
+    // Hide the approval window after resolution
+    if let Some(approval_window) = app.get_webview_window("approval") {
+        let _ = approval_window.hide();
+    }
+    
+    result
+}
+
 fn position_recording_window(window: &WebviewWindow) {
     const BOTTOM_MARGIN: i32 = 48;
 
@@ -215,7 +229,7 @@ pub fn run() {
                 text_injector: text_injector.clone(),
                 whisper_client: whisper_client.clone(),
                 config: Arc::new(Mutex::new(config)),
-                agent_manager,
+                agent_manager: agent_manager.clone(),
             };
 
             let audio_manager_start = audio_manager.clone();
@@ -237,6 +251,31 @@ pub fn run() {
                         // Position window after showing to ensure current_monitor() targets the correct display
                         // where the window natively spawned, rather than falling back prematurely.
                         position_recording_window(&window);
+
+                        // On Windows, WebView2 has its own opaque default background that CSS
+                        // transparency cannot override. We must explicitly set it to transparent
+                        // via the ICoreWebView2Controller2::put_DefaultBackgroundColor API.
+                        #[cfg(target_os = "windows")]
+                        {
+                            use webview2_com::Microsoft::Web::WebView2::Win32::{
+                                ICoreWebView2Controller2, COREWEBVIEW2_COLOR,
+                            };
+                            use windows::core::Interface;
+                            let _ = window.with_webview(|webview| unsafe {
+                                if let Ok(controller2) = webview
+                                    .controller()
+                                    .cast::<ICoreWebView2Controller2>()
+                                {
+                                    let transparent = COREWEBVIEW2_COLOR {
+                                        A: 0,
+                                        R: 0,
+                                        G: 0,
+                                        B: 0,
+                                    };
+                                    let _ = controller2.SetDefaultBackgroundColor(transparent);
+                                }
+                            });
+                        }
                     }
 
                     let am = audio_manager.lock().expect("Failed to lock audio manager");
@@ -248,8 +287,12 @@ pub fn run() {
 
             let app_handle_stop = app_handle.clone();
             let config_for_stop = app.state::<AppState>().config.clone();
-            let _ = app.listen("recording-stopped", move |_event| {
+            let agent_manager_stop = agent_manager.clone();
+            let _ = app.listen("recording-stopped", move |event| {
                 eprintln!("🛑 Recording stopped event received");
+                
+                let payload = event.payload();
+                let is_agent_mode = serde_json::from_str::<bool>(payload).unwrap_or(false);
 
                 if let Some(window) = app_handle_stop.get_webview_window("recording") {
                     let _ = window.hide();
@@ -259,6 +302,8 @@ pub fn run() {
                 let whisper_client_bg = whisper_client_stop.clone();
                 let text_injector_bg = text_injector_stop.clone();
                 let config_bg = config_for_stop.clone();
+                let agent_manager_bg = agent_manager_stop.clone();
+                let app_handle_bg = app_handle_stop.clone();
 
                 tauri::async_runtime::spawn(async move {
                     let audio_data: Vec<u8> = {
@@ -302,16 +347,41 @@ pub fn run() {
                     };
 
                     eprintln!("✅ Transcription: \"{}\"", text);
-
-                    let mut text_injector = text_injector_bg
-                        .lock()
-                        .expect("Failed to lock text injector (async)");
-                    if let Err(e) = text_injector.type_text(&text, 15) {
-                        eprintln!("❌ Failed to inject text: {}", e);
+                    
+                    if is_agent_mode {
+                        eprintln!("🤖 Agent mode active, routing to agent manager...");
+                        let am = agent_manager_bg.lock().unwrap().clone();
+                        // Call the agent manager with the app handle for tool capabilities
+                        if let Err(e) = am.handle_agent_request(&text, app_handle_bg.clone()).await {
+                            eprintln!("❌ Agent failed: {}", e);
+                        }
                     } else {
-                        eprintln!("✅ Text injected successfully");
+                        // Spawn blocking task to avoid blocking Tokio runtime
+                        let text_injector_clone = text_injector_bg.clone();
+                        let text_clone = text.clone();
+                        let _ = tokio::task::spawn_blocking(move || {
+                            let mut text_injector = text_injector_clone
+                                .lock()
+                                .expect("Failed to lock text injector");
+                            if let Err(e) = text_injector.type_text(&text_clone, 15) {
+                                eprintln!("❌ Failed to inject text: {}", e);
+                            } else {
+                                eprintln!("✅ Text injected successfully");
+                            }
+                        }).await;
                     }
                 });
+            });
+
+            let agent_manager_ready = agent_manager.clone();
+            let _ = app.listen("approval-window-ready", move |_event| {
+                eprintln!("✅ Approval window ready signal received");
+                let am = agent_manager_ready.lock().expect("Failed to lock agent_manager");
+                let ready_tx = am.approval_window_ready.lock().unwrap().take();
+                drop(am); // Drop the first lock
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(());
+                }
             });
 
             tray::setup_tray(app.handle())?;
@@ -328,6 +398,7 @@ pub fn run() {
             get_config,
             update_whisper_url,
             agent_prompt,
+            resolve_tool_approval,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
