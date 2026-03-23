@@ -85,11 +85,14 @@ fn handle_key_press(key: Key, state: &Arc<Mutex<ModifierState>>, app: &AppHandle
     let mut should_start_agent = false;
     let mut should_start_record = false;
 
-    if st.ctrl_pressed && st.win_pressed && st.alt_pressed {
+    // Agent Mode: Alt + Win (must NOT have Ctrl pressed)
+    if st.alt_pressed && st.win_pressed && !st.ctrl_pressed {
         st.is_recording = true;
         st.is_agent_mode = true;
         should_start_agent = true;
-    } else if st.ctrl_pressed && st.win_pressed {
+    }
+    // Normal Dictation: Ctrl + Win (must NOT have Alt pressed)
+    else if st.ctrl_pressed && st.win_pressed && !st.alt_pressed {
         st.is_recording = true;
         should_start_record = true;
     }
@@ -97,11 +100,12 @@ fn handle_key_press(key: Key, state: &Arc<Mutex<ModifierState>>, app: &AppHandle
     drop(st); // Drop lock before emitting
 
     if should_start_agent {
-        info!("Ctrl+Win+Alt pressed — Starting agent mode");
-        let _ = app.emit("agent-mode-started", ());
+        info!("Alt+Win pressed — Starting agent mode");
+        // Emit recording-started with agent mode flag
+        let _ = app.emit("recording-started", "agent");
     } else if should_start_record {
         info!("Ctrl+Win pressed — Starting recording");
-        let _ = app.emit("recording-started", ());
+        let _ = app.emit("recording-started", "transcription");
     }
 }
 
@@ -112,7 +116,8 @@ fn handle_key_release(key: Key, state: &Arc<Mutex<ModifierState>>, app: &AppHand
     match key {
         Key::ControlLeft | Key::ControlRight => {
             st.ctrl_pressed = false;
-            if st.is_recording {
+            // Stop if we were in normal dictation mode and Ctrl is released
+            if st.is_recording && !st.is_agent_mode {
                 info!("Ctrl released — Stopping recording");
                 should_stop_recording = true;
             }
@@ -120,14 +125,15 @@ fn handle_key_release(key: Key, state: &Arc<Mutex<ModifierState>>, app: &AppHand
         Key::MetaLeft | Key::MetaRight => {
             st.win_pressed = false;
             debug!("Win released");
-            // Stop recording if Ctrl is also released or not held
-            if st.is_recording && !st.ctrl_pressed {
-                info!("Win released (Ctrl not held) — Stopping recording");
+            // Stop recording when Win is released (regardless of mode)
+            if st.is_recording {
+                info!("Win released — Stopping recording");
                 should_stop_recording = true;
             }
         }
         Key::Alt | Key::AltGr => {
             st.alt_pressed = false;
+            // Stop if we were in agent mode and Alt is released
             if st.is_recording && st.is_agent_mode {
                 info!("Alt released — Stopping agent mode recording");
                 should_stop_recording = true;
@@ -137,9 +143,10 @@ fn handle_key_release(key: Key, state: &Arc<Mutex<ModifierState>>, app: &AppHand
     }
 
     if should_stop_recording {
+        let was_agent_mode = st.is_agent_mode;
         st.is_recording = false;
         st.is_agent_mode = false;
         drop(st); // Drop lock before emitting
-        let _ = app.emit("recording-stopped", false);
+        let _ = app.emit("recording-stopped", was_agent_mode);
     }
 }
