@@ -5516,7 +5516,7 @@ dependencies = [
 
 [[package]]
 name = "speech-2-text"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "adk-core",
  "adk-runner",
