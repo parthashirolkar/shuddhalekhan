@@ -1,50 +1,47 @@
-# AGENTS.md
+# AGENTS.md — Shuddhalekhan
 
-This file provides guidelines for agentic coding tools working in this repository.
+## Stale docs warning
+- **README.md and `.github/workflows/release.yml` are stale** — they still reference Tauri. The app was migrated to Electron. Do not trust anything Tauri-related in those files. `src-tauri/` does not exist.
 
----
+## Platform
+- **Windows-only**. The app uses `koffi` to call `user32.dll` / `kernel32.dll` for global keyboard hooks and clipboard paste simulation. Will not run on macOS/Linux.
 
-## Project Overview
+## Commands
+| Purpose     | Command                          |
+|-------------|----------------------------------|
+| Dev         | `bun run dev`                    |
+| Build       | `bun run build`                  |
+| Typecheck   | `bun run typecheck`              |
+| Lint        | `bun run lint`                   |
+| Lint fix    | `bun run lint:fix`               |
+| Package     | `bun run dist`                   |
+| Install     | `bun install`                    |
 
-Tauri-based speech-to-text system tray application with React frontend and Rust backend.
-- **Frontend Entry Point**: `src/main.tsx`
-- **Desktop Entry Points**: `src-tauri/src/main.rs` and `src-tauri/src/lib.rs`
-- **Runtime**: Tauri v2 + Bun for frontend tooling
+Use `bun` exclusively. `pnpm` is only a fallback if `koffi` causes resolution issues.
 
----
+## Build architecture
+- **electron-vite** with three targets defined in `electron.vite.config.ts`:
+  - `main` — entry `src/main/index.ts`, output CJS (`out/main/index.cjs`)
+  - `preload` — entry `src/preload/index.ts`, output CJS (`out/preload/index.cjs`)
+  - `renderer` — Vite + React, entry `src/renderer/main.tsx`, alias `@renderer` → `src/renderer/`
 
-## Build, Lint, Test Commands
+## IPC
+- All IPC channel types are in `src/types/ipc.ts`. Channels must stay in sync between `src/preload/index.ts` and `src/main/index.ts`.
+- Pattern: `invoke` for request/response, `send`/`on` for events.
+- Preload exposes `window.electronAPI` with typed `invoke`, `send`, `on`.
 
-```bash
-# Install dependencies
-bun install
+## Native layer
+- `src/main/native/keyboard.ts` — global low-level keyboard hook via `koffi`. Ctrl+Win chord toggles recording.
+- `src/main/native/clipboard.ts` — `SendInput`-based Ctrl+V paste simulation via `koffi`.
 
-# Lint code
-bun run lint
+## Config
+- `electron-store` with store name `shuddhalekhan-config`.
+- Legacy config path `~/.speech-2-text/config.json` is auto-migrated on first run (see `src/main/config.ts`).
 
-# Fix lint issues
-bun run lint:fix
+## Lint rules
+- `@typescript-eslint/no-unused-vars` is error-level with `argsIgnorePattern: '^_'`.
+- `@typescript-eslint/no-explicit-any` is off.
+- `out/`, `release/`, `node_modules/`, `src-tauri/`, and `*.config.{ts,mjs}` are ignored.
 
-# Type check frontend
-bun run typecheck
-
-# Check Rust backend
-cd src-tauri && cargo check
-
-# Run app in development
-bun run tauri dev
-```
-
----
-
-**Key points**:
-- Tray icon path is `src-tauri/icons/tray-icon.ico`.
-- Recording popup UI is rendered from React (`src/RecordingPopup.tsx`) inside the Tauri `recording` window.
-- Text injection must not append Enter/newline by default.
-
-# btca MCP Usage Instructions
-
-Use btca whenever a task depends on understanding a repo, docs site, or configured resource
-more accurately than a generic model can.
-
-Use it whenever the user says "use btca", or when you need info that should come from the listed resources.
+## No tests
+- There are no test scripts or test files. Run lint + typecheck as pre-commit verification.

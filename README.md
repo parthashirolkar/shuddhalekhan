@@ -1,19 +1,20 @@
-# Speech-2-Text (Tauri)
+# Speech-2-Text (Electron)
 
-Windows tray-based speech-to-text app built with **Tauri (Rust backend + React frontend)**.  
+Windows tray-based speech-to-text app built with **Electron + React**.
 Audio is recorded locally, transcribed via Whisper HTTP endpoint, and injected at the active cursor.
 
 ## Stack
 
 - Frontend: React + TypeScript + Vite
-- Desktop runtime: Tauri v2
-- Backend: Rust (`src-tauri`)
+- Desktop runtime: Electron
+- Native Windows integration: Koffi
 
 ## Project Layout
 
-- `src/` React UI (recording popup + minimal main window)
-- `src-tauri/src/` Rust app logic (audio, hotkeys, tray, whisper, text injection)
-- `src-tauri/icons/` application and tray icons
+- `src/renderer/` React UI (recording popup + hidden audio window)
+- `src/main/` Electron main process logic (hotkey, tray, Whisper, text injection)
+- `src/preload/` IPC bridge
+- `icons/` application and tray icons
 
 ## Development
 
@@ -23,22 +24,22 @@ Install JS dependencies:
 bun install
 ```
 
-Typecheck frontend:
+Typecheck:
 
 ```bash
 bun run typecheck
 ```
 
-Run Tauri app in dev mode:
+Run Electron app in dev mode:
 
 ```bash
-bun run tauri dev
+bun run dev
 ```
 
 Build production app:
 
 ```bash
-bun run tauri build
+bun run dist
 ```
 
 ## Whisper Server Setup
@@ -77,11 +78,6 @@ The application requires a Whisper HTTP endpoint to transcribe audio. You can us
 
 **⚠️ IMPORTANT:** The `LD_LIBRARY_PATH` environment variable is critical for CUDA GPU detection. Without it, the container falls back to CPU-only mode.
 
-4. **Configure the app:**
-   - Run the app and right-click the tray icon
-   - Go to "Update Whisper URL"
-   - Enter: `http://localhost:8080/inference`
-
 **Start server on reboot:**
 ```powershell
 docker start whisper-cuda-server
@@ -107,5 +103,5 @@ The app works with any OpenAI-compatible Whisper endpoint, such as:
 
 - Recording popup is bottom-center and pill-shaped.
 - Transcript injection is newline-safe (no Enter keypress is appended).
-- Tray icon uses `src-tauri/icons/tray-icon.ico`.
-- Configuration stored in `~/.speech-2-text/config.json`
+- Tray icon uses `icons/tray-icon.ico`.
+- Active configuration is stored by Electron. Legacy `~/.speech-2-text/config.json` is migrated on first run.

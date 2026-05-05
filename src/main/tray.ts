@@ -1,0 +1,131 @@
+import { Tray, Menu, nativeImage, app } from 'electron';
+import { join } from 'path';
+import { existsSync } from 'fs';
+import { getConfig, setConfig } from './config';
+import { getAudioWindow } from './audio-window';
+import type { AudioDevice } from '../types/ipc';
+
+let tray: Tray | null = null;
+let cleanTranscriptionHandler: ((enabled: boolean) => void) | null = null;
+let checkUpdatesHandler: (() => void) | null = null;
+let audioDevices: AudioDevice[] = [];
+
+export function createTray(
+  onToggleCleanTranscription: (enabled: boolean) => void,
+  onCheckUpdates: () => void
+): Tray {
+  cleanTranscriptionHandler = onToggleCleanTranscription;
+  checkUpdatesHandler = onCheckUpdates;
+
+  const icon = loadTrayIcon();
+  
+  tray = new Tray(icon.resize({ width: 16, height: 16 }));
+  tray.setToolTip('Shuddhalekhan');
+  tray.setIgnoreDoubleClickEvents(true);
+
+  updateTrayMenu();
+
+  tray.on('click', () => {
+    // Optional: show main window on click
+  });
+
+  return tray;
+}
+
+export function updateTrayMenu(): void {
+  if (!tray) return;
+
+  const config = getConfig();
+  const deviceSubmenu = buildDeviceSubmenu(audioDevices, config.selectedDeviceId);
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Audio Devices',
+      submenu: deviceSubmenu,
+    },
+    { type: 'separator' },
+    {
+      label: 'Clean Transcription',
+      type: 'checkbox',
+      checked: config.removeFillerWords,
+      click: (menuItem) => {
+        setConfig('removeFillerWords', menuItem.checked);
+        cleanTranscriptionHandler?.(menuItem.checked);
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Check for Updates',
+      click: () => checkUpdatesHandler?.(),
+    },
+    {
+      label: 'Exit',
+      accelerator: 'CommandOrControl+Q',
+      click: () => app.quit(),
+    },
+  ]);
+
+  tray.setContextMenu(contextMenu);
+}
+
+export function updateAudioDevices(devices: AudioDevice[]): void {
+  audioDevices = devices.filter((device) => device.kind === 'audioinput');
+  updateTrayMenu();
+}
+
+function buildDeviceSubmenu(
+  devices: AudioDevice[],
+  currentDeviceId: string | null
+): Electron.MenuItemConstructorOptions[] {
+  const deviceSubmenu: Electron.MenuItemConstructorOptions[] = devices.map((device) => ({
+    label: device.label || `Device ${device.deviceId.slice(0, 8)}`,
+    type: 'radio',
+    checked: device.deviceId === currentDeviceId || (!currentDeviceId && device.deviceId === 'default'),
+    click: () => {
+      setConfig('selectedDeviceId', device.deviceId);
+      const audioWin = getAudioWindow();
+      if (audioWin && !audioWin.isDestroyed()) {
+        audioWin.webContents.send('audio:select-device', device.deviceId);
+      }
+      updateTrayMenu();
+    },
+  }));
+
+  if (deviceSubmenu.length === 0) {
+    deviceSubmenu.push({ label: 'No audio devices found', enabled: false });
+  }
+
+  return deviceSubmenu;
+}
+
+export function getTray(): Tray | null {
+  return tray;
+}
+
+function loadTrayIcon(): Electron.NativeImage {
+  const candidatePaths = app.isPackaged
+    ? [join(process.resourcesPath, 'icons', 'tray-icon.ico')]
+    : [
+        join(app.getAppPath(), 'icons', 'tray-icon.ico'),
+      ];
+
+  for (const iconPath of candidatePaths) {
+    if (!existsSync(iconPath)) continue;
+
+    const icon = nativeImage.createFromPath(iconPath);
+    if (!icon.isEmpty()) {
+      return icon;
+    }
+  }
+
+  return nativeImage.createFromDataURL(
+    'data:image/svg+xml;charset=utf-8,' +
+      encodeURIComponent(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+          <rect width="32" height="32" rx="8" fill="#141417"/>
+          <path d="M10 16h12" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+          <path d="M16 8v16" stroke="#646cff" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+      `)
+  );
+}
