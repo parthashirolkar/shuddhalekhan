@@ -44,6 +44,8 @@ report.*.json
 # Agent CLI files
 CLAUDE.md
 GEMINI.md
+.codex
+
 
 # Tauri updater key
 .tauri/
