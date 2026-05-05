@@ -1,21 +1,29 @@
-use adk_rust::prelude::*;
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager};
-use tokio_stream::StreamExt;
 use adk_runner::{Runner, RunnerConfig};
+use adk_rust::prelude::*;
 use adk_session::{CreateRequest, InMemorySessionService, SessionService};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tokio::sync::oneshot;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::sync::Mutex;
+use tauri::{AppHandle, Emitter, Manager};
+use tokio::sync::oneshot;
+use tokio_stream::StreamExt;
+
+// WebView2 transparency fix for Windows
+#[cfg(target_os = "windows")]
+use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2Controller2, COREWEBVIEW2_COLOR};
+#[cfg(target_os = "windows")]
+use windows::core::Interface;
 
 // Helper macro to reduce boilerplate for tool creation
 macro_rules! create_tool_with_approval {
     ($name:expr, $desc:expr, $args_ty:ty, $self:expr, $app:expr, $tool_logic:expr) => {{
         let pending = $self.pending_approvals.clone();
         let ready = $self.approval_window_ready.clone();
+        let tool_use_rejected = $self.tool_use_rejected.clone();
         let app_handle = $app.clone();
-        
+
         FunctionTool::new(
             $name,
             $desc,
@@ -25,19 +33,45 @@ macro_rules! create_tool_with_approval {
                 let app_handle = app_handle.clone();
                 let args_val = args.clone();
                 let args_for_tool = args.clone();
-                
+
                 async move {
-                    if !request_approval(pending, ready, app_handle.clone(), $name, args_val).await {
-                        return Ok(serde_json::json!({ "status": "error", "message": "User denied execution" }));
+                    match request_approval(pending, ready, app_handle.clone(), $name, args_val).await {
+                        ApprovalOutcome::Approved => {}
+                        ApprovalOutcome::Rejected => {
+                            tool_use_rejected.store(true, Ordering::SeqCst);
+                            return Ok(serde_json::json!({
+                                "status": "rejected",
+                                "message": "User rejected tool use"
+                            }));
+                        }
+                        ApprovalOutcome::Unavailable => {
+                            return Ok(serde_json::json!({
+                                "status": "error",
+                                "message": "Tool approval was unavailable"
+                            }));
+                        }
+                        ApprovalOutcome::TimedOut => {
+                            return Ok(serde_json::json!({
+                                "status": "timeout",
+                                "message": "Tool approval timed out"
+                            }));
+                        }
                     }
 
                     println!("Executing tool: {} with args: {:?}", $name, args_for_tool);
-                    
+
                     $tool_logic(&args_for_tool)
                 }
             }
         ).with_parameters_schema::<$args_ty>()
     }};
+}
+
+enum ApprovalOutcome {
+    Approved,
+    Rejected,
+    TimedOut,
+    Unavailable,
 }
 
 // Tools
@@ -70,6 +104,7 @@ pub struct AgentManager {
     model_name: String,
     pub pending_approvals: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
     pub approval_window_ready: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    tool_use_rejected: Arc<AtomicBool>,
     // Track the auto-hide timer for agent response window to prevent race conditions
     agent_response_hide_timer: Arc<Mutex<Option<tokio::task::AbortHandle>>>,
 }
@@ -80,10 +115,12 @@ async fn request_approval(
     app: AppHandle,
     tool_name: &str,
     args: serde_json::Value,
-) -> bool {
+) -> ApprovalOutcome {
     let (tx, rx) = oneshot::channel();
     static APPROVAL_ID: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let id = APPROVAL_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst).to_string();
+    let id = APPROVAL_ID
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        .to_string();
 
     {
         let mut map = pending_approvals.lock().unwrap();
@@ -97,36 +134,85 @@ async fn request_approval(
         *ready = Some(ready_tx);
     }
 
+    // Emit event to signal frontend to prepare for the approval window
+    // Frontend will emit "approval-window-ready" after it starts listening
+    let _ = app.emit("prepare-approval-window", ());
+
     // Show and focus the approval window
     if let Some(approval_window) = app.get_webview_window("approval") {
         let _ = approval_window.show();
         let _ = approval_window.set_focus();
         let _ = approval_window.set_always_on_top(true);
+
+        // On Windows, WebView2 has its own opaque default background that CSS
+        // transparency cannot override. We must explicitly set it to transparent
+        // via the ICoreWebView2Controller2::put_DefaultBackgroundColor API.
+        #[cfg(target_os = "windows")]
+        {
+            let _ = approval_window.with_webview(|webview| unsafe {
+                if let Ok(controller2) = webview.controller().cast::<ICoreWebView2Controller2>() {
+                    let transparent = COREWEBVIEW2_COLOR {
+                        A: 0,
+                        R: 0,
+                        G: 0,
+                        B: 0,
+                    };
+                    let _ = controller2.SetDefaultBackgroundColor(transparent);
+                }
+            });
+        }
     }
 
     // Wait for approval window to be ready (with 2 second timeout)
     let ready_timeout = tokio::time::Duration::from_secs(2);
-    if tokio::time::timeout(ready_timeout, &mut ready_rx).await.is_err() {
-        eprintln!("⚠️ Approval window not ready within {} second timeout", ready_timeout.as_secs());
+    if tokio::time::timeout(ready_timeout, &mut ready_rx)
+        .await
+        .is_err()
+    {
+        eprintln!(
+            "⚠️ Approval window not ready within {} second timeout",
+            ready_timeout.as_secs()
+        );
         // Clean up the pending approval
         let mut map = pending_approvals.lock().unwrap();
         map.remove(&id);
-        return false;
+        let _ = app.emit(
+            "tool-approval-cancelled",
+            serde_json::json!({
+                "id": id,
+                "reason": "approval-window-not-ready"
+            }),
+        );
+        return ApprovalOutcome::Unavailable;
     }
 
-    let _ = app.emit("tool-approval-requested", serde_json::json!({
-        "id": id,
-        "tool": tool_name,
-        "args": args
-    }));
+    let _ = app.emit(
+        "tool-approval-requested",
+        serde_json::json!({
+            "id": id,
+            "tool": tool_name,
+            "args": args
+        }),
+    );
 
     // Wait for user approval with a 5-minute timeout
     let approval_timeout = tokio::time::Duration::from_secs(300);
     let approved = match tokio::time::timeout(approval_timeout, rx).await {
         Ok(result) => result.unwrap_or(false),
         Err(_) => {
-            eprintln!("⚠️ Approval request {} timed out after {} seconds", id, approval_timeout.as_secs());
-            false
+            eprintln!(
+                "⚠️ Approval request {} timed out after {} seconds",
+                id,
+                approval_timeout.as_secs()
+            );
+            let _ = app.emit(
+                "tool-approval-cancelled",
+                serde_json::json!({
+                    "id": id,
+                    "reason": "timeout"
+                }),
+            );
+            return ApprovalOutcome::TimedOut;
         }
     };
 
@@ -145,34 +231,50 @@ async fn request_approval(
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     }
 
-    approved
+    if approved {
+        ApprovalOutcome::Approved
+    } else {
+        ApprovalOutcome::Rejected
+    }
 }
 
 // Browser launching helper functions
 
 fn matches_default_browser_alias(input: &str) -> bool {
-    matches!(input,
-        "browser" | "my browser" | "default browser" |
-        "zen" | "zen-browser" | "zen browser"
+    matches!(
+        input,
+        "browser" | "my browser" | "default browser" | "zen" | "zen-browser" | "zen browser"
     )
 }
 
 fn is_url_like(input: &str) -> bool {
-    input.contains("://") ||
-    input.contains('.') && input.split('.').count() >= 2
+    input.contains("://") || input.contains('.') && input.split('.').count() >= 2
 }
 
 fn is_known_domain(input: &str) -> bool {
     let known_domains = [
-        "youtube", "google", "github", "reddit", "twitter", "x.com",
-        "facebook", "instagram", "linkedin", "amazon", "netflix",
-        "twitch", "discord", "spotify", "wikipedia", "stackoverflow"
+        "youtube",
+        "google",
+        "github",
+        "reddit",
+        "twitter",
+        "x.com",
+        "facebook",
+        "instagram",
+        "linkedin",
+        "amazon",
+        "netflix",
+        "twitch",
+        "discord",
+        "spotify",
+        "wikipedia",
+        "stackoverflow",
     ];
-    
+
     let input_lower = input.to_lowercase();
-    known_domains.iter().any(|&domain| {
-        input_lower == domain || input_lower.starts_with(&format!("{}.", domain))
-    })
+    known_domains
+        .iter()
+        .any(|&domain| input_lower == domain || input_lower.starts_with(&format!("{}.", domain)))
 }
 
 fn ensure_https_prefix(input: &str) -> String {
@@ -216,17 +318,53 @@ fn resolve_and_launch(input: &str) -> std::result::Result<String, String> {
 
     // 4. Only allow whitelisted local applications
     const ALLOWED_APPS: &[&str] = &[
-        "notepad", "calc", "calculator", "explorer", "cmd", "settings",
-        "control panel", "mspaint", "paint", "wordpad", "powershell",
-        "terminal", "wt", "snippingtool", "taskmgr", "regedit",
-        "devmgmt", "appwiz.cpl", "inetcpl.cpl", "msinfo32", "dxdiag",
-        "notepad++", "code", "vscode", "sublime", "atom",
-        "chrome", "firefox", "edge", "brave", "opera", "safari",
-        "spotify", "discord", "slack", "teams", "zoom",
-        "file", "files", "file explorer", "this pc"
+        "notepad",
+        "calc",
+        "calculator",
+        "explorer",
+        "cmd",
+        "settings",
+        "control panel",
+        "mspaint",
+        "paint",
+        "wordpad",
+        "powershell",
+        "terminal",
+        "wt",
+        "snippingtool",
+        "taskmgr",
+        "regedit",
+        "devmgmt",
+        "appwiz.cpl",
+        "inetcpl.cpl",
+        "msinfo32",
+        "dxdiag",
+        "notepad++",
+        "code",
+        "vscode",
+        "sublime",
+        "atom",
+        "chrome",
+        "firefox",
+        "edge",
+        "brave",
+        "opera",
+        "safari",
+        "spotify",
+        "discord",
+        "slack",
+        "teams",
+        "zoom",
+        "file",
+        "files",
+        "file explorer",
+        "this pc",
     ];
-    
-    if !ALLOWED_APPS.iter().any(|&app| input_lower == app || input_lower.starts_with(&format!("{}.", app))) {
+
+    if !ALLOWED_APPS
+        .iter()
+        .any(|&app| input_lower == app || input_lower.starts_with(&format!("{}.", app)))
+    {
         return Err(format!(
             "'{}' is not in the allowed local applications list. \
             This action is restricted for security reasons.",
@@ -246,6 +384,7 @@ impl AgentManager {
             model_name: "functiongemma".to_string(),
             pending_approvals: Arc::new(Mutex::new(HashMap::new())),
             approval_window_ready: Arc::new(Mutex::new(None)),
+            tool_use_rejected: Arc::new(AtomicBool::new(false)),
             agent_response_hide_timer: Arc::new(Mutex::new(None)),
         }
     }
@@ -272,11 +411,17 @@ impl AgentManager {
         }
     }
 
-    pub async fn handle_agent_request(&self, prompt: &str, app: AppHandle) -> std::result::Result<(), String> {
+    pub async fn handle_agent_request(
+        &self,
+        prompt: &str,
+        app: AppHandle,
+    ) -> std::result::Result<(), String> {
         eprintln!("🤖 handle_agent_request called with prompt: {}", prompt);
-        
+        self.tool_use_rejected.store(false, Ordering::SeqCst);
+
         // Initialize model
-        let model = OllamaModel::new(OllamaConfig::new(&self.model_name)).map_err(|e| e.to_string())?;
+        let model =
+            OllamaModel::new(OllamaConfig::new(&self.model_name)).map_err(|e| e.to_string())?;
         eprintln!("✅ OllamaModel initialized");
 
         // Instantiate tools via FunctionTool
@@ -288,10 +433,18 @@ impl AgentManager {
             self,
             app,
             |args: &serde_json::Value| {
-                let app_name = args.get("app_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let app_name = args
+                    .get("app_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 match resolve_and_launch(&app_name) {
-                    Ok(message) => Ok(serde_json::json!({ "status": "success", "message": message })),
-                    Err(e) => Ok(serde_json::json!({ "status": "error", "message": format!("Failed to open {}: {}", app_name, e) })),
+                    Ok(message) => {
+                        Ok(serde_json::json!({ "status": "success", "message": message }))
+                    }
+                    Err(e) => Ok(
+                        serde_json::json!({ "status": "error", "message": format!("Failed to open {}: {}", app_name, e) }),
+                    ),
                 }
             }
         );
@@ -305,35 +458,35 @@ impl AgentManager {
             |args: &serde_json::Value| {
                 let setting = args.get("setting").and_then(|v| v.as_str()).unwrap_or("").to_string();
                 let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                
+
                 if setting.to_lowercase() == "volume" {
                     use crate::volume;
                     let action_lower = action.to_lowercase();
-                    
+
                     match action_lower.as_str() {
                         "increase" => {
                             let amount = args.get("amount").and_then(|v| v.as_u64()).unwrap_or(20) as u32;
                             match volume::increase_volume_by(amount) {
-                                Ok(new_level) => Ok(serde_json::json!({ 
-                                    "status": "success", 
-                                    "message": format!("Increased volume to {}%", new_level) 
+                                Ok(new_level) => Ok(serde_json::json!({
+                                    "status": "success",
+                                    "message": format!("Increased volume to {}%", new_level)
                                 })),
-                                Err(e) => Ok(serde_json::json!({ 
-                                    "status": "error", 
-                                    "message": format!("Failed to increase volume: {}", e) 
+                                Err(e) => Ok(serde_json::json!({
+                                    "status": "error",
+                                    "message": format!("Failed to increase volume: {}", e)
                                 }))
                             }
                         },
                         "decrease" => {
                             let amount = args.get("amount").and_then(|v| v.as_u64()).unwrap_or(20) as u32;
                             match volume::decrease_volume_by(amount) {
-                                Ok(new_level) => Ok(serde_json::json!({ 
-                                    "status": "success", 
-                                    "message": format!("Decreased volume to {}%", new_level) 
+                                Ok(new_level) => Ok(serde_json::json!({
+                                    "status": "success",
+                                    "message": format!("Decreased volume to {}%", new_level)
                                 })),
-                                Err(e) => Ok(serde_json::json!({ 
-                                    "status": "error", 
-                                    "message": format!("Failed to decrease volume: {}", e) 
+                                Err(e) => Ok(serde_json::json!({
+                                    "status": "error",
+                                    "message": format!("Failed to decrease volume: {}", e)
                                 }))
                             }
                         },
@@ -341,39 +494,39 @@ impl AgentManager {
                             match volume::toggle_mute() {
                                 Ok(is_muted) => {
                                     let status = if is_muted { "muted" } else { "unmuted" };
-                                    Ok(serde_json::json!({ 
-                                        "status": "success", 
-                                        "message": format!("System {}", status) 
+                                    Ok(serde_json::json!({
+                                        "status": "success",
+                                        "message": format!("System {}", status)
                                     }))
                                 },
-                                Err(e) => Ok(serde_json::json!({ 
-                                    "status": "error", 
-                                    "message": format!("Failed to toggle mute: {}", e) 
+                                Err(e) => Ok(serde_json::json!({
+                                    "status": "error",
+                                    "message": format!("Failed to toggle mute: {}", e)
                                 }))
                             }
                         },
                         "set" => {
                             let level = args.get("level").and_then(|v| v.as_u64()).unwrap_or(50).clamp(0, 100) as u32;
                             match volume::set_volume(level) {
-                                Ok(_) => Ok(serde_json::json!({ 
-                                    "status": "success", 
-                                    "message": format!("Volume set to exactly {}%", level) 
+                                Ok(_) => Ok(serde_json::json!({
+                                    "status": "success",
+                                    "message": format!("Volume set to exactly {}%", level)
                                 })),
-                                Err(e) => Ok(serde_json::json!({ 
-                                    "status": "error", 
-                                    "message": format!("Failed to set volume: {}", e) 
+                                Err(e) => Ok(serde_json::json!({
+                                    "status": "error",
+                                    "message": format!("Failed to set volume: {}", e)
                                 }))
                             }
                         },
-                        _ => Ok(serde_json::json!({ 
-                            "status": "error", 
-                            "message": "Unknown action for volume. Use: increase, decrease, mute, unmute, toggle, or set" 
+                        _ => Ok(serde_json::json!({
+                            "status": "error",
+                            "message": "Unknown action for volume. Use: increase, decrease, mute, unmute, toggle, or set"
                         }))
                     }
                 } else {
-                    Ok(serde_json::json!({ 
-                        "status": "error", 
-                        "message": format!("Setting '{}' is not supported. Only 'volume' is currently available.", setting) 
+                    Ok(serde_json::json!({
+                        "status": "error",
+                        "message": format!("Setting '{}' is not supported. Only 'volume' is currently available.", setting)
                     }))
                 }
             }
@@ -400,13 +553,13 @@ impl AgentManager {
                             let path = dirs::picture_dir()
                                 .unwrap_or_else(|| std::env::temp_dir())
                                 .join(&filename);
-                            
+
                             if let Err(e) = img.save(&path) {
                                 return Ok(serde_json::json!({ "status": "error", "message": format!("Failed to save screenshot: {}", e) }));
                             }
-                            
+
                             let _ = open::that(&path);
-                            
+
                             return Ok(serde_json::json!({ "status": "success", "message": format!("Screenshot saved to {:?}", path) }));
                         }
                         Err(e) => {
@@ -455,17 +608,17 @@ impl AgentManager {
             cancellation_token: None,
             context_cache_config: None,
             request_context: None,
-        }).map_err(|e| e.to_string())?;
+        })
+        .map_err(|e| e.to_string())?;
         eprintln!("✅ Runner created");
 
         // Execute agent with streaming response
         let user_content = adk_core::Content::new("user").with_text(prompt);
         eprintln!("📤 Calling runner.run()...");
-        let mut stream = runner.run(
-            "user_1".to_string(),
-            session.id().to_string(),
-            user_content,
-        ).await.map_err(|e| e.to_string())?;
+        let mut stream = runner
+            .run("user_1".to_string(), session.id().to_string(), user_content)
+            .await
+            .map_err(|e| e.to_string())?;
         eprintln!("✅ runner.run() returned successfully, processing stream...");
 
         let mut full_response = String::new();
@@ -487,43 +640,64 @@ impl AgentManager {
                 }
             }
         }
-        eprintln!("✅ Stream processing complete. Total events: {}. Response length: {} chars", event_count, full_response.len());
+        eprintln!(
+            "✅ Stream processing complete. Total events: {}. Response length: {} chars",
+            event_count,
+            full_response.len()
+        );
 
         // Sanitize the response from functiongemma
         // Functiongemma sometimes includes internal tokens like <start_of_turn> or <escape>
         // We will do a basic string replacement to clean it up before sending to the frontend.
         let mut clean_response = full_response;
         let tokens_to_remove = [
-            "<start_of_turn>", "<end_of_turn>", "model\n", "<escape>", "<eos>", "<bos>", "<pad>"
+            "<start_of_turn>",
+            "<end_of_turn>",
+            "model\n",
+            "<escape>",
+            "<eos>",
+            "<bos>",
+            "<pad>",
         ];
         for token in tokens_to_remove {
             clean_response = clean_response.replace(token, "");
         }
         clean_response = clean_response.trim().to_string();
 
+        if self.tool_use_rejected.load(Ordering::SeqCst) {
+            clean_response = "User rejected tool use.".to_string();
+        }
+
         // Emit result back to frontend and show response window
         println!("Agent response: {}", clean_response);
-        
+
         // Show agent response window
         if let Some(response_window) = app.get_webview_window("agent-response") {
             // Update the webview with the message via a custom event
             let _ = app.emit("agent-response-data", clean_response.clone());
-            
+
             // Position the window in the bottom right corner
-            if let Some(monitor) = response_window.current_monitor().ok().flatten().or_else(|| response_window.primary_monitor().ok().flatten()) {
+            if let Some(monitor) = response_window
+                .current_monitor()
+                .ok()
+                .flatten()
+                .or_else(|| response_window.primary_monitor().ok().flatten())
+            {
                 let monitor_pos = monitor.position();
                 let monitor_size = monitor.size();
-                
+
                 // Typical size from config is 420x120, plus some padding
                 let window_width = 420;
                 let window_height = 120;
                 let padding_x = 24;
                 let padding_y = 48; // Space from bottom (taskbar area)
-                
+
                 let x = monitor_pos.x + monitor_size.width as i32 - window_width - padding_x;
                 let y = monitor_pos.y + monitor_size.height as i32 - window_height - padding_y;
-                
-                let _ = response_window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x, y)));
+
+                let _ = response_window.set_position(tauri::Position::Physical(
+                    tauri::PhysicalPosition::new(x, y),
+                ));
             }
 
             let _ = response_window.show();
@@ -552,7 +726,7 @@ impl AgentManager {
                 *timer_lock = Some(timer_handle.abort_handle());
             }
         }
-        
+
         let _ = app.emit("agent-response", clean_response);
 
         Ok(())

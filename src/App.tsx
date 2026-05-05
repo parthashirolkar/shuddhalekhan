@@ -15,6 +15,11 @@ interface ApprovalRequest {
   args: ToolArgs;
 }
 
+interface ApprovalCancelled {
+  id: string;
+  reason: string;
+}
+
 function App() {
   const [windowLabel, setWindowLabel] = useState<string>('');
   const [agentResponse, setAgentResponse] = useState<string | null>(null);
@@ -24,9 +29,15 @@ function App() {
     const currentWindow = getCurrentWebviewWindow();
     setWindowLabel(currentWindow.label);
     
-    // Emit ready event when approval window mounts
+    // Listen for prepare signal from Rust - this ensures Rust is listening before we emit
     if (currentWindow.label === 'approval') {
-      emit('approval-window-ready');
+      const unlistenPrepare = listen('prepare-approval-window', () => {
+        emit('approval-window-ready');
+      });
+      
+      return () => {
+        unlistenPrepare.then(fn => fn());
+      };
     }
     
     // Listen for agent response data (for agent-response window)
@@ -51,11 +62,15 @@ function App() {
     const currentRequest = approvalQueue[0];
     if (!currentRequest) return;
 
-    // Resolve this request
-    await invoke('resolve_tool_approval', { id: currentRequest.id, approved });
+    try {
+      // Resolve this request
+      await invoke('resolve_tool_approval', { id: currentRequest.id, approved });
+    } catch (error) {
+      console.error('Failed to resolve approval request', error);
+    }
     
-    // Remove it from the queue
-    setApprovalQueue(prev => prev.slice(1));
+    // Remove it from the queue, even if Rust already timed it out.
+    setApprovalQueue(prev => prev.filter(request => request.id !== currentRequest.id));
   }, [approvalQueue]);
 
   // Use a ref to avoid re-registering listeners when addApprovalRequest changes
@@ -74,12 +89,15 @@ function App() {
       addApprovalRequestRef.current(event.payload);
     });
 
+    const unlistenApprovalCancelled = listen<ApprovalCancelled>('tool-approval-cancelled', (event) => {
+      setApprovalQueue(prev => prev.filter(request => request.id !== event.payload.id));
+    });
+
     return () => {
       unlistenAgentResponse.then(fn => fn());
       unlistenApproval.then(fn => fn());
+      unlistenApprovalCancelled.then(fn => fn());
     };
-    // Empty dependency array - listeners are registered once and never re-registered
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Get the current request (first in queue)
