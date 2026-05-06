@@ -15,6 +15,7 @@ const config: AppConfig = {
       model: '',
       apiKeyEnvVar: '',
     },
+    mcpServers: [],
   },
 };
 

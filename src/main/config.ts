@@ -2,7 +2,12 @@ import Store from 'electron-store';
 import { app } from 'electron';
 import { join } from 'path';
 import { existsSync, readFileSync, unlinkSync } from 'fs';
-import type { AppConfig } from '../types/ipc';
+import type {
+  AgentToolApprovalPolicy,
+  AppConfig,
+  McpServerConfig,
+  McpToolPolicyKey,
+} from '../types/ipc';
 
 type StoreConfig = AppConfig & {
   migrated?: boolean;
@@ -21,9 +26,49 @@ const store = new Store<StoreConfig>({
         model: '',
         apiKeyEnvVar: '',
       },
+      mcpServers: [],
     },
   },
 });
+
+const DEFAULT_TOOL_POLICY: AgentToolApprovalPolicy = 'alwaysAsk';
+
+function makeToolPolicyKey(serverId: string, toolName: string): McpToolPolicyKey {
+  return `${serverId}:${toolName}`;
+}
+
+function normalizeMcpServer(server: McpServerConfig): McpServerConfig {
+  const discoveredTools = Array.isArray(server.discoveredTools) ? server.discoveredTools : [];
+  const toolPolicies = { ...(server.toolPolicies ?? {}) };
+
+  for (const tool of discoveredTools) {
+    const key = makeToolPolicyKey(server.id, tool.name);
+    if (!toolPolicies[key]) {
+      toolPolicies[key] = DEFAULT_TOOL_POLICY;
+    }
+  }
+
+  return {
+    ...server,
+    enabled: server.enabled ?? false,
+    discoveredTools,
+    toolPolicies,
+  };
+}
+
+function normalizeMcpServers(servers: McpServerConfig[] | undefined): McpServerConfig[] {
+  if (!Array.isArray(servers)) return [];
+
+  const seenPresets = new Set<string>();
+  return servers
+    .filter((server) => {
+      if (server.preset !== 'gmail') return true;
+      if (seenPresets.has(server.preset)) return false;
+      seenPresets.add(server.preset);
+      return true;
+    })
+    .map(normalizeMcpServer);
+}
 
 // Migrate old config from ~/.speech-2-text/config.json on first run
 function maybeMigrateLegacyConfig(): void {
@@ -58,6 +103,7 @@ maybeMigrateLegacyConfig();
 
 export function getConfig(): AppConfig {
   const agent = store.get('agent');
+  const mcpServers = normalizeMcpServers(agent?.mcpServers);
 
   return {
     whisperUrl: store.get('whisperUrl'),
@@ -70,6 +116,7 @@ export function getConfig(): AppConfig {
         model: agent?.provider?.model ?? '',
         apiKeyEnvVar: agent?.provider?.apiKeyEnvVar ?? '',
       },
+      mcpServers,
     },
   };
 }

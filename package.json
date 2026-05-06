@@ -8,7 +8,8 @@
   "author": "parthashirolkar",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "electron-vite build && bun run build:agent",
+    "build:agent": "vite build --config vite.agent.config.ts",
     "preview": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps",
     "dist": "electron-builder",

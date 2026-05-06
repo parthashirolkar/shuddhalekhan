@@ -6,6 +6,45 @@ export type AudioDevice = {
 
 export type RecordingIntent = 'dictation' | 'agent';
 
+export type AgentToolApprovalPolicy = 'disabled' | 'alwaysAsk' | 'alwaysAllow';
+
+export type McpToolPolicyKey = `${string}:${string}`;
+
+export type McpServerTransport =
+  | {
+      type: 'stdio';
+      command: string;
+      args: string[];
+      envVarNames: string[];
+    }
+  | {
+      type: 'http';
+      url: string;
+      oauth?: {
+        enabled: boolean;
+        credentialSource: 'userProvided' | 'bundledAppClient';
+        clientIdEnvVar?: string;
+        clientSecretEnvVar?: string;
+      };
+    };
+
+export interface McpDiscoveredTool {
+  name: string;
+  description: string;
+  inputSchema?: unknown;
+  discoveredAt: string;
+}
+
+export interface McpServerConfig {
+  id: string;
+  displayName: string;
+  enabled: boolean;
+  transport: McpServerTransport;
+  discoveredTools: McpDiscoveredTool[];
+  toolPolicies: Record<McpToolPolicyKey, AgentToolApprovalPolicy>;
+  preset?: 'gmail';
+}
+
 export interface RendererToMainSendChannels {
   'audio-window-ready': () => void;
   'audio-data-ready': (audioData: ArrayBuffer) => void;
@@ -52,6 +91,7 @@ export interface AppConfig {
       model: string;
       apiKeyEnvVar: string;
     };
+    mcpServers: McpServerConfig[];
   };
 }
 

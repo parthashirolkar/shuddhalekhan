@@ -57,6 +57,7 @@ describe('config store', () => {
           model: '',
           apiKeyEnvVar: '',
         },
+        mcpServers: [],
       },
     });
   });
@@ -79,6 +80,7 @@ describe('config store', () => {
           model: '',
           apiKeyEnvVar: '',
         },
+        mcpServers: [],
       },
     });
   });
@@ -104,6 +106,7 @@ describe('config store', () => {
           model: '',
           apiKeyEnvVar: '',
         },
+        mcpServers: [],
       },
     });
     expect(readFileSync).toHaveBeenCalledWith(normalize('/home/tester/.speech-2-text/config.json'), 'utf-8');
@@ -127,8 +130,78 @@ describe('config store', () => {
           model: '',
           apiKeyEnvVar: '',
         },
+        mcpServers: [],
       },
     });
     expect(unlinkSync).not.toHaveBeenCalled();
+  });
+
+  it('defaults newly discovered MCP tools to alwaysAsk and keeps one Gmail preset', async () => {
+    existsSync.mockReturnValue(false);
+    const { getConfig, setConfig } = await import(`../config?test=${Date.now()}-5`);
+
+    setConfig('agent', {
+      enabled: true,
+      provider: {
+        baseUrl: 'https://openrouter.ai/api/v1',
+        model: 'openai/gpt-4.1-mini',
+        apiKeyEnvVar: 'OPENROUTER_API_KEY',
+      },
+      mcpServers: [
+        {
+          id: 'gmail-primary',
+          displayName: 'Gmail',
+          enabled: true,
+          preset: 'gmail',
+          transport: {
+            type: 'http',
+            url: 'https://gmailmcp.googleapis.com/mcp/v1',
+          },
+          discoveredTools: [
+            {
+              name: 'draft_email',
+              description: 'Draft an email',
+              discoveredAt: '2026-05-07T00:00:00.000Z',
+            },
+          ],
+          toolPolicies: {},
+        },
+        {
+          id: 'gmail-secondary',
+          displayName: 'Gmail duplicate',
+          enabled: true,
+          preset: 'gmail',
+          transport: {
+            type: 'http',
+            url: 'https://gmailmcp.googleapis.com/mcp/v1',
+          },
+          discoveredTools: [],
+          toolPolicies: {},
+        },
+      ],
+    });
+
+    expect(getConfig().agent.mcpServers).toEqual([
+      {
+        id: 'gmail-primary',
+        displayName: 'Gmail',
+        enabled: true,
+        preset: 'gmail',
+        transport: {
+          type: 'http',
+          url: 'https://gmailmcp.googleapis.com/mcp/v1',
+        },
+        discoveredTools: [
+          {
+            name: 'draft_email',
+            description: 'Draft an email',
+            discoveredAt: '2026-05-07T00:00:00.000Z',
+          },
+        ],
+        toolPolicies: {
+          'gmail-primary:draft_email': 'alwaysAsk',
+        },
+      },
+    ]);
   });
 });
