@@ -1,19 +1,22 @@
-# Speech-2-Text (Tauri)
+# Shuddhalekhan
 
-Windows tray-based speech-to-text app built with **Tauri (Rust backend + React frontend)**.  
-Audio is recorded locally, transcribed via Whisper HTTP endpoint, and injected at the active cursor.
+Windows tray-based speech-to-text dictation app built with Electron and React.
+Audio is recorded locally, sent to a Whisper-compatible HTTP endpoint, and injected at the active cursor.
+
+Hold `Ctrl+Win` to record. Release the chord to stop recording, transcribe the captured audio, and paste the transcript into the focused application.
 
 ## Stack
 
 - Frontend: React + TypeScript + Vite
-- Desktop runtime: Tauri v2
-- Backend: Rust (`src-tauri`)
+- Desktop runtime: Electron
+- Native Windows integration: Koffi
 
 ## Project Layout
 
-- `src/` React UI (recording popup + minimal main window)
-- `src-tauri/src/` Rust app logic (audio, hotkeys, tray, whisper, text injection)
-- `src-tauri/icons/` application and tray icons
+- `src/renderer/` React UI (recording popup + hidden audio window)
+- `src/main/` Electron main process logic (hotkey, tray, Whisper, text injection)
+- `src/preload/` IPC bridge
+- `icons/` application and tray icons
 
 ## Development
 
@@ -23,27 +26,47 @@ Install JS dependencies:
 bun install
 ```
 
-Typecheck frontend:
+Typecheck:
 
 ```bash
 bun run typecheck
 ```
 
-Run Tauri app in dev mode:
+Lint:
 
 ```bash
-bun run tauri dev
+bun run lint
 ```
 
-Build production app:
+Run tests:
 
 ```bash
-bun run tauri build
+bun test
 ```
+
+Run Electron app in dev mode:
+
+```bash
+bun run dev
+```
+
+Build production app artifacts locally:
+
+```bash
+bun run dist
+```
+
+The GitHub release workflow runs lint, typecheck, tests, build, and Electron Builder packaging on `windows-latest`.
 
 ## Whisper Server Setup
 
-The application requires a Whisper HTTP endpoint to transcribe audio. You can use:
+The application requires a Whisper-compatible HTTP endpoint to transcribe audio. By default it posts to:
+
+```text
+http://localhost:8080/inference
+```
+
+The request is sent as `multipart/form-data` with a WAV `file`, `temperature=0.2`, and `response_format=json`. When transcription cleanup is enabled, a cleanup `prompt` field is also included.
 
 ### Option 1: Local whisper.cpp with Docker (Recommended)
 
@@ -77,11 +100,6 @@ The application requires a Whisper HTTP endpoint to transcribe audio. You can us
 
 **⚠️ IMPORTANT:** The `LD_LIBRARY_PATH` environment variable is critical for CUDA GPU detection. Without it, the container falls back to CPU-only mode.
 
-4. **Configure the app:**
-   - Run the app and right-click the tray icon
-   - Go to "Update Whisper URL"
-   - Enter: `http://localhost:8080/inference`
-
 **Start server on reboot:**
 ```powershell
 docker start whisper-cuda-server
@@ -89,23 +107,21 @@ docker start whisper-cuda-server
 
 ### Option 2: OpenAI Whisper API
 
-Use OpenAI's hosted Whisper API:
-
-1. Get an API key from https://platform.openai.com/api-keys
-2. Configure the app's Whisper URL to: `https://api.openai.com/v1/audio/transcriptions`
-3. Set your API key in the request headers (requires code modification)
+The app's current Whisper client does not include request-header configuration, so hosted APIs that require authentication need code changes before they can be used directly.
 
 ### Option 3: Other Whisper Providers
 
-The app works with any OpenAI-compatible Whisper endpoint, such as:
-- LocalAI
+The app works with any compatible unauthenticated endpoint that accepts the same multipart WAV upload shape, such as:
 - LocalAI
 - Self-hosted whisper.cpp instances
-- Cloud providers offering Whisper APIs
 
 ## Notes
 
+- The app is Windows-only because global keyboard hooks and paste simulation call Windows APIs through `koffi`.
+- Recording is controlled by the global `Ctrl+Win` chord.
+- The tray menu supports microphone selection, transcription cleanup toggling, manual update checks, and exit.
 - Recording popup is bottom-center and pill-shaped.
 - Transcript injection is newline-safe (no Enter keypress is appended).
-- Tray icon uses `src-tauri/icons/tray-icon.ico`.
-- Configuration stored in `~/.speech-2-text/config.json`
+- Tray icon uses `icons/tray-icon.ico`.
+- Active configuration is stored with `electron-store` under the `shuddhalekhan-config` store name.
+- Updates are packaged with Electron Builder and checked with `electron-updater`.

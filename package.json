@@ -1,37 +1,70 @@
 {
-  "name": "speech-2-text",
+  "name": "shuddhalekhan",
   "private": true,
-  "version": "2.3.0",
+  "version": "3.0.1",
+  "description": "Shuddhalekhan — speech-to-text dictation app",
   "type": "module",
+  "main": "./out/main/index.cjs",
+  "author": "parthashirolkar",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
-    "tauri": "tauri",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "lint:fix": "eslint . --ext ts,tsx --fix",
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "postinstall": "electron-builder install-app-deps",
+    "dist": "electron-builder",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-dialog": "~2",
-    "@tauri-apps/plugin-global-shortcut": "^2",
-    "@tauri-apps/plugin-shell": "^2",
-    "@tauri-apps/plugin-updater": "~2",
+    "electron-store": "^8.2.0",
+    "electron-updater": "^6.3.0",
+    "koffi": "^2.9.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.0",
+    "electron-vite": "^2.3.0",
+    "eslint": "^9",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4",
-    "@tauri-apps/cli": "^2",
-    "@typescript-eslint/eslint-plugin": "^8.29.0",
-    "@typescript-eslint/parser": "^8.29.0",
-    "eslint": "^9.24.0",
-    "eslint-plugin-react-hooks": "^5.2.0",
-    "eslint-plugin-react-refresh": "^0.4.19"
+    "typescript-eslint": "^8.59.2",
+    "vite": "^6.0.0"
+  },
+  "build": {
+    "appId": "com.shuddhalekhan.app",
+    "productName": "Shuddhalekhan",
+    "directories": {
+      "output": "release"
+    },
+    "releaseInfo": {
+      "releaseNotesFile": "release-notes.md"
+    },
+    "files": [
+      "out/**/*",
+      "icons/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icons/tray-icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "parthashirolkar",
+      "repo": "shuddhalekhan"
+    }
   }
 }

@@ -1,9 +1,11 @@
 # Build outputs and dependencies
 build/
 dist/
+out/
+release/
 node_modules/
 
-# Rust/Tauri generated artifacts
+# Legacy Rust/Tauri generated artifacts (kept for safety)
 src-tauri/target/
 src-tauri/gen/schemas/
 tauri_test/
