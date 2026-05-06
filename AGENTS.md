@@ -1,8 +1,5 @@
 # AGENTS.md — Shuddhalekhan
 
-## Stale docs warning
-- **README.md and `.github/workflows/release.yml` are stale** — they still reference Tauri. The app was migrated to Electron. Do not trust anything Tauri-related in those files. `src-tauri/` does not exist.
-
 ## Platform
 - **Windows-only**. The app uses `koffi` to call `user32.dll` / `kernel32.dll` for global keyboard hooks and clipboard paste simulation. Will not run on macOS/Linux.
 
@@ -14,6 +11,7 @@
 | Typecheck   | `bun run typecheck`              |
 | Lint        | `bun run lint`                   |
 | Lint fix    | `bun run lint:fix`               |
+| Test        | `bun test`                       |
 | Package     | `bun run dist`                   |
 | Install     | `bun install`                    |
 
@@ -43,5 +41,6 @@ Use `bun` exclusively. `pnpm` is only a fallback if `koffi` causes resolution is
 - `@typescript-eslint/no-explicit-any` is off.
 - `out/`, `release/`, `node_modules/`,and `*.config.{ts,mjs}` are ignored.
 
-## No tests
-- There are no test scripts or test files. Run lint + typecheck as pre-commit verification.
+## Tests
+- Bun tests live under `src/**/__tests__/`.
+- Run lint, typecheck, and `bun test` as pre-commit verification.

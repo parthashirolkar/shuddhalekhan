@@ -46,6 +46,9 @@
     "directories": {
       "output": "release"
     },
+    "releaseInfo": {
+      "releaseNotesFile": "release-notes.md"
+    },
     "files": [
       "out/**/*",
       "icons/**/*"

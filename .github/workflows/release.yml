@@ -1,4 +1,4 @@
-name: "Release Windows App"
+name: Release Windows App
 
 on:
   pull_request:
@@ -24,40 +24,30 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Install frontend dependencies
-        run: bun install
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          # Targets are optional for windows-latest but good for explicitness
-          targets: x86_64-pc-windows-msvc
+      - name: Lint
+        run: bun run lint
 
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: './src-tauri -> target'
+      - name: Typecheck
+        run: bun run typecheck
 
-      - name: Build Changelog
-        id: build_changelog
-        uses: mikepenz/release-changelog-builder-action@v4
+      - name: Test
+        run: bun test
+
+      - name: Build
+        run: bun run build
+
+      - name: Package and publish Electron app
+        run: bun run dist -- --publish always
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          failOnError: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and Release Tauri App
-        uses: tauri-apps/tauri-action@v0
+      - name: Update GitHub release notes
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          gh release edit "v$version" --notes-file release-notes.md
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          # tauri-action automatically replaces \_\_VERSION\_\_ with the app version
-          tagName: app-v__VERSION__
-          releaseName: 'App v__VERSION__'
-          releaseBody: ${{ steps.build_changelog.outputs.changelog }}
-          # Let's start with releaseDraft: false to make it directly available
-          releaseDraft: false
-          prerelease: false
-          args: ''
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

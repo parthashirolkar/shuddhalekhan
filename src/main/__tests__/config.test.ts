@@ -67,7 +67,7 @@ describe('config store', () => {
     });
   });
 
-  it('migrates and deletes the legacy Tauri-era config once', async () => {
+  it('migrates and deletes the legacy config once', async () => {
     existsSync.mockReturnValue(true);
     readFileSync.mockReturnValue(JSON.stringify({
       whisper_url: 'http://legacy.test/inference',
