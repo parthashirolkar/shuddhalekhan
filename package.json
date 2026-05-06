@@ -73,7 +73,9 @@
     "publish": {
       "provider": "github",
       "owner": "parthashirolkar",
-      "repo": "shuddhalekhan"
+      "repo": "shuddhalekhan",
+      "releaseType": "release",
+      "publishAutoUpdate": true
     }
   }
 }

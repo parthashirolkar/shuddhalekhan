@@ -19,8 +19,12 @@ function now(): string {
   return new Date().toISOString();
 }
 
-function getErrorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+function getUpdateFailureMessage(): string {
+  return 'Update check failed. Please try again later.';
+}
+
+function getUpdateFailureDetail(): string {
+  return 'Shuddhalekhan could not reach a valid update release. If this keeps happening, install the latest release manually from GitHub.';
 }
 
 export function setupUpdater(onStatusChanged?: (status: UpdateStatus) => void): void {
@@ -122,7 +126,7 @@ export function setupUpdater(onStatusChanged?: (status: UpdateStatus) => void): 
     setStatus({
       state: 'error',
       currentVersion: app.getVersion(),
-      message: `Update check failed: ${getErrorMessage(err)}`,
+      message: getUpdateFailureMessage(),
       checkedAt: now(),
     });
   });
@@ -184,16 +188,17 @@ export async function checkForUpdates(options: { silent?: boolean } = {}): Promi
     const status: UpdateStatus = {
       state: 'error',
       currentVersion: app.getVersion(),
-      message: `Update check failed: ${getErrorMessage(err)}`,
+      message: getUpdateFailureMessage(),
       checkedAt: now(),
     };
+    console.error('Auto-updater manual check failed:', err);
     setStatus(status);
     if (!options.silent) {
       await dialog.showMessageBox({
         type: 'error',
         title: 'Update Check Failed',
         message: 'Shuddhalekhan could not check for updates.',
-        detail: getErrorMessage(err),
+        detail: getUpdateFailureDetail(),
         buttons: ['OK'],
       });
     }
