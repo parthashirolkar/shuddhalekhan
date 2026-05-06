@@ -104,7 +104,10 @@ export function getTray(): Tray | null {
 
 function loadTrayIcon(): Electron.NativeImage {
   const candidatePaths = app.isPackaged
-    ? [join(process.resourcesPath, 'icons', 'tray-icon.ico')]
+    ? [
+        join(process.resourcesPath, 'icons', 'tray-icon.ico'),
+        join(app.getAppPath(), 'icons', 'tray-icon.ico'),
+      ]
     : [
         join(app.getAppPath(), 'icons', 'tray-icon.ico'),
       ];

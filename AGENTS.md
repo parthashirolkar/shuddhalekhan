@@ -7,12 +7,10 @@
 | Purpose     | Command                          |
 |-------------|----------------------------------|
 | Dev         | `bun run dev`                    |
-| Build       | `bun run build`                  |
 | Typecheck   | `bun run typecheck`              |
 | Lint        | `bun run lint`                   |
 | Lint fix    | `bun run lint:fix`               |
 | Test        | `bun test`                       |
-| Package     | `bun run dist`                   |
 | Install     | `bun install`                    |
 
 Use `bun` exclusively. `pnpm` is only a fallback if `koffi` causes resolution issues.

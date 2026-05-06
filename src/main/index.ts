@@ -202,9 +202,6 @@ app.whenReady().then(() => {
 
   createMainWindow();
   const audioWin = createAudioWindow();
-  audioWin.webContents.on('console-message', (_event, level, message) => {
-    console.log(`[audio-window:${level}] ${message}`);
-  });
   audioWin.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
     console.error(`Audio window failed to load: ${errorCode} ${errorDescription}`);
   });

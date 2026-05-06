@@ -53,6 +53,15 @@
       "out/**/*",
       "icons/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "icons",
+        "to": "icons",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
     "win": {
       "target": "nsis",
       "icon": "icons/tray-icon.ico"
