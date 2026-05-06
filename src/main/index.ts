@@ -4,11 +4,11 @@ import { keyboardHook } from './native/keyboard';
 import { simulatePaste } from './native/clipboard';
 import { createAudioWindow, getAudioWindow, destroyAudioWindow } from './audio-window';
 import { showRecordingPill, hideRecordingPill, getRecordingPillWindow } from './recording-pill';
-import { createTray, updateAudioDevices } from './tray';
+import { createTray, updateAudioDevices, updateUpdaterStatus } from './tray';
 import { getConfig, setConfig } from './config';
 import { transcribe } from './whisper';
-import { setupUpdater, checkForUpdates } from './updater';
-import type { AppConfig, AudioDevice } from '../types/ipc';
+import { setupUpdater, checkForUpdates, getUpdateStatus } from './updater';
+import type { AppConfig, AudioDevice, UpdateStatus } from '../types/ipc';
 
 let mainWindow: BrowserWindow | null = null;
 let isRecording = false;
@@ -105,6 +105,13 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function publishUpdateStatus(status: UpdateStatus): void {
+  updateUpdaterStatus(status);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('updater:status-changed', status);
+  }
+}
+
 // IPC handlers
 ipcMain.handle('audio:start-recording', () => {
   startRecording();
@@ -152,8 +159,20 @@ ipcMain.handle('clipboard:inject-text', (_event, text: string) => {
   }, 50);
 });
 
-ipcMain.handle('updater:check', () => {
-  checkForUpdates();
+ipcMain.handle('app:get-info', async () => {
+  return {
+    name: app.name,
+    version: app.getVersion(),
+    isPackaged: app.isPackaged,
+  };
+});
+
+ipcMain.handle('updater:get-status', () => {
+  return getUpdateStatus();
+});
+
+ipcMain.handle('updater:check', async () => {
+  return checkForUpdates();
 });
 
 // Renderer -> Main events
@@ -219,10 +238,13 @@ app.whenReady().then(() => {
     (enabled) => {
       console.log('Clean transcription:', enabled);
     },
-    () => checkForUpdates()
+    () => {
+      void checkForUpdates();
+    }
   );
 
-  setupUpdater();
+  setupUpdater(publishUpdateStatus);
+  publishUpdateStatus(getUpdateStatus());
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

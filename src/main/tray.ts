@@ -3,12 +3,18 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { getConfig, setConfig } from './config';
 import { getAudioWindow } from './audio-window';
-import type { AudioDevice } from '../types/ipc';
+import type { AudioDevice, UpdateStatus } from '../types/ipc';
 
 let tray: Tray | null = null;
 let cleanTranscriptionHandler: ((enabled: boolean) => void) | null = null;
 let checkUpdatesHandler: (() => void) | null = null;
 let audioDevices: AudioDevice[] = [];
+let updateStatus: UpdateStatus = {
+  state: 'idle',
+  currentVersion: app.getVersion(),
+  message: `Shuddhalekhan v${app.getVersion()}`,
+  checkedAt: null,
+};
 
 export function createTray(
   onToggleCleanTranscription: (enabled: boolean) => void,
@@ -20,7 +26,7 @@ export function createTray(
   const icon = loadTrayIcon();
   
   tray = new Tray(icon.resize({ width: 16, height: 16 }));
-  tray.setToolTip('Shuddhalekhan');
+  tray.setToolTip(`Shuddhalekhan v${app.getVersion()}`);
   tray.setIgnoreDoubleClickEvents(true);
 
   updateTrayMenu();
@@ -40,6 +46,15 @@ export function updateTrayMenu(): void {
 
   const contextMenu = Menu.buildFromTemplate([
     {
+      label: `Shuddhalekhan v${app.getVersion()}`,
+      enabled: false,
+    },
+    {
+      label: getUpdateMenuLabel(updateStatus),
+      enabled: false,
+    },
+    { type: 'separator' },
+    {
       label: 'Audio Devices',
       submenu: deviceSubmenu,
     },
@@ -55,7 +70,8 @@ export function updateTrayMenu(): void {
     },
     { type: 'separator' },
     {
-      label: 'Check for Updates',
+      label: updateStatus.state === 'checking' ? 'Checking for Updates...' : 'Check for Updates',
+      enabled: updateStatus.state !== 'checking',
       click: () => checkUpdatesHandler?.(),
     },
     {
@@ -70,6 +86,11 @@ export function updateTrayMenu(): void {
 
 export function updateAudioDevices(devices: AudioDevice[]): void {
   audioDevices = devices.filter((device) => device.kind === 'audioinput');
+  updateTrayMenu();
+}
+
+export function updateUpdaterStatus(status: UpdateStatus): void {
+  updateStatus = status;
   updateTrayMenu();
 }
 
@@ -96,6 +117,27 @@ function buildDeviceSubmenu(
   }
 
   return deviceSubmenu;
+}
+
+function getUpdateMenuLabel(status: UpdateStatus): string {
+  switch (status.state) {
+    case 'checking':
+      return 'Update status: checking...';
+    case 'available':
+      return `Update status: v${status.availableVersion} available`;
+    case 'downloading':
+      return status.percent === null
+        ? `Update status: downloading v${status.availableVersion}`
+        : `Update status: downloading v${status.availableVersion} (${status.percent}%)`;
+    case 'downloaded':
+      return `Update status: v${status.availableVersion} ready to install`;
+    case 'latest':
+      return `Update status: latest (${status.latestVersion})`;
+    case 'error':
+      return 'Update status: check failed';
+    case 'idle':
+      return 'Update status: not checked yet';
+  }
 }
 
 export function getTray(): Tray | null {

@@ -72,7 +72,7 @@ describe('tray', () => {
 
     expect(createFromPath).toHaveBeenCalledWith(normalize('/app/icons/tray-icon.ico'));
     expect(resize).toHaveBeenCalledWith({ width: 16, height: 16 });
-    expect(setToolTip).toHaveBeenCalledWith('Shuddhalekhan');
+    expect(setToolTip).toHaveBeenCalledWith('Shuddhalekhan v3.1.0');
     expect(setIgnoreDoubleClickEvents).toHaveBeenCalledWith(true);
     expect(setContextMenu).toHaveBeenCalled();
   });
@@ -109,7 +109,7 @@ describe('tray', () => {
       { deviceId: 'speaker', label: 'Speaker', kind: 'audioinput' },
     ]);
     const latestMenu = buildFromTemplate.mock.calls.at(-1)?.[0];
-    const deviceItems = latestMenu[0].submenu;
+    const deviceItems = latestMenu[3].submenu;
 
     expect(deviceItems).toHaveLength(2);
     expect(deviceItems[0].checked).toBe(true);
@@ -127,13 +127,30 @@ describe('tray', () => {
     createTray(cleanHandler, updateHandler);
     const menu = buildFromTemplate.mock.calls.at(-1)?.[0];
 
-    menu[2].click({ checked: false });
-    menu[4].click();
-    menu[5].click();
+    menu[5].click({ checked: false });
+    menu[7].click();
+    menu[8].click();
 
     expect(setConfig).toHaveBeenCalledWith('removeFillerWords', false);
     expect(cleanHandler).toHaveBeenCalledWith(false);
     expect(updateHandler).toHaveBeenCalled();
     expect(quit).toHaveBeenCalled();
+  });
+
+  it('shows update status in the tray menu', async () => {
+    const { createTray, updateUpdaterStatus } = await import(`../tray?test=${Date.now()}-5`);
+
+    createTray(vi.fn(), vi.fn());
+    updateUpdaterStatus({
+      state: 'latest',
+      currentVersion: '3.1.0',
+      latestVersion: '3.1.0',
+      message: "You're on the latest version: Shuddhalekhan v3.1.0.",
+      checkedAt: new Date().toISOString(),
+    });
+    const menu = buildFromTemplate.mock.calls.at(-1)?.[0];
+
+    expect(menu[0].label).toBe('Shuddhalekhan v3.1.0');
+    expect(menu[1].label).toBe('Update status: latest (3.1.0)');
   });
 });

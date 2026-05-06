@@ -1,16 +1,58 @@
 import { autoUpdater } from 'electron-updater';
-import { dialog } from 'electron';
+import { app, dialog } from 'electron';
+import type { UpdateStatus } from '../types/ipc';
 
-export function setupUpdater(): void {
-  autoUpdater.checkForUpdatesAndNotify();
+let statusListener: ((status: UpdateStatus) => void) | null = null;
+let currentStatus: UpdateStatus = {
+  state: 'idle',
+  currentVersion: app.getVersion(),
+  message: `Shuddhalekhan v${app.getVersion()}`,
+  checkedAt: null,
+};
+
+function setStatus(status: UpdateStatus): void {
+  currentStatus = status;
+  statusListener?.(status);
+}
+
+function now(): string {
+  return new Date().toISOString();
+}
+
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+export function setupUpdater(onStatusChanged?: (status: UpdateStatus) => void): void {
+  statusListener = onStatusChanged ?? null;
+
+  autoUpdater.autoDownload = true;
+
+  autoUpdater.on('checking-for-update', () => {
+    setStatus({
+      state: 'checking',
+      currentVersion: app.getVersion(),
+      message: 'Checking for updates...',
+      checkedAt: currentStatus.checkedAt,
+    });
+  });
 
   autoUpdater.on('update-available', (info) => {
+    const availableVersion = info.version;
+    setStatus({
+      state: 'available',
+      currentVersion: app.getVersion(),
+      availableVersion,
+      message: `Shuddhalekhan v${availableVersion} is available. Downloading now...`,
+      checkedAt: now(),
+    });
+
     dialog
       .showMessageBox({
         type: 'info',
         title: 'Update Available',
-        message: `Shuddhalekhan v${info.version} is available.`,
-        detail: 'The update will be downloaded and installed automatically.',
+        message: `Shuddhalekhan v${availableVersion} is available.`,
+        detail: 'The update is downloading in the background. You will be prompted to restart when it is ready.',
         buttons: ['OK'],
       })
       .catch(() => {
@@ -18,12 +60,49 @@ export function setupUpdater(): void {
       });
   });
 
+  autoUpdater.on('download-progress', (progress) => {
+    const availableVersion =
+      currentStatus.state === 'available' ||
+      currentStatus.state === 'downloading' ||
+      currentStatus.state === 'downloaded'
+        ? currentStatus.availableVersion
+        : 'unknown';
+
+    setStatus({
+      state: 'downloading',
+      currentVersion: app.getVersion(),
+      availableVersion,
+      percent: Number.isFinite(progress.percent) ? Math.round(progress.percent) : null,
+      message: `Downloading Shuddhalekhan v${availableVersion}...`,
+      checkedAt: currentStatus.checkedAt ?? now(),
+    });
+  });
+
+  autoUpdater.on('update-not-available', (info) => {
+    setStatus({
+      state: 'latest',
+      currentVersion: app.getVersion(),
+      latestVersion: info.version,
+      message: `You're on the latest version: Shuddhalekhan v${app.getVersion()}.`,
+      checkedAt: now(),
+    });
+  });
+
   autoUpdater.on('update-downloaded', (info) => {
+    const availableVersion = info.version;
+    setStatus({
+      state: 'downloaded',
+      currentVersion: app.getVersion(),
+      availableVersion,
+      message: `Shuddhalekhan v${availableVersion} is ready to install.`,
+      checkedAt: currentStatus.checkedAt ?? now(),
+    });
+
     dialog
       .showMessageBox({
         type: 'info',
         title: 'Update Ready',
-        message: `Shuddhalekhan v${info.version} has been downloaded.`,
+        message: `Shuddhalekhan v${availableVersion} has been downloaded.`,
         detail: 'The application will restart to apply the update.',
         buttons: ['Restart Now', 'Later'],
         defaultId: 0,
@@ -40,9 +119,105 @@ export function setupUpdater(): void {
 
   autoUpdater.on('error', (err) => {
     console.error('Auto-updater error:', err);
+    setStatus({
+      state: 'error',
+      currentVersion: app.getVersion(),
+      message: `Update check failed: ${getErrorMessage(err)}`,
+      checkedAt: now(),
+    });
   });
+
+  void checkForUpdates({ silent: true });
 }
 
-export function checkForUpdates(): void {
-  autoUpdater.checkForUpdates();
+export function getUpdateStatus(): UpdateStatus {
+  return currentStatus;
+}
+
+export async function checkForUpdates(options: { silent?: boolean } = {}): Promise<UpdateStatus> {
+  if (!app.isPackaged) {
+    const status: UpdateStatus = {
+      state: 'latest',
+      currentVersion: app.getVersion(),
+      latestVersion: app.getVersion(),
+      message: 'Update checks run only in the packaged Windows app.',
+      checkedAt: now(),
+    };
+    setStatus(status);
+    if (!options.silent) {
+      await dialog.showMessageBox({
+        type: 'info',
+        title: 'Updates Unavailable in Development',
+        message: status.message,
+        buttons: ['OK'],
+      });
+    }
+    return status;
+  }
+
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    if (result?.updateInfo) {
+      if (!options.silent) {
+        await showManualCheckResult(currentStatus);
+      }
+      return currentStatus;
+    }
+    const status: UpdateStatus = {
+      state: 'error',
+      currentVersion: app.getVersion(),
+      message: 'Update check failed: no update information was returned.',
+      checkedAt: now(),
+    };
+    setStatus(status);
+    if (!options.silent) {
+      await dialog.showMessageBox({
+        type: 'error',
+        title: 'Update Check Failed',
+        message: 'Shuddhalekhan could not confirm whether an update is available.',
+        detail: 'The update service did not return update information. Please try again later.',
+        buttons: ['OK'],
+      });
+    }
+    return status;
+  } catch (err) {
+    const status: UpdateStatus = {
+      state: 'error',
+      currentVersion: app.getVersion(),
+      message: `Update check failed: ${getErrorMessage(err)}`,
+      checkedAt: now(),
+    };
+    setStatus(status);
+    if (!options.silent) {
+      await dialog.showMessageBox({
+        type: 'error',
+        title: 'Update Check Failed',
+        message: 'Shuddhalekhan could not check for updates.',
+        detail: getErrorMessage(err),
+        buttons: ['OK'],
+      });
+    }
+    return status;
+  }
+
+  return currentStatus;
+}
+
+async function showManualCheckResult(status: UpdateStatus): Promise<void> {
+  if (status.state === 'latest') {
+    await dialog.showMessageBox({
+      type: 'info',
+      title: 'No Updates Available',
+      message: `You're on the latest version: Shuddhalekhan v${status.currentVersion}.`,
+      buttons: ['OK'],
+    });
+  } else if (status.state === 'downloaded') {
+    await dialog.showMessageBox({
+      type: 'info',
+      title: 'Update Ready',
+      message: `Shuddhalekhan v${status.availableVersion} is ready to install.`,
+      detail: 'Restart the application to apply the update.',
+      buttons: ['OK'],
+    });
+  }
 }
