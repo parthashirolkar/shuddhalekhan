@@ -1,16 +1,12 @@
-# Shuddhalekhan 3.0.1
+# Shuddhalekhan 3.0.2
 
-This release is a major rewrite of Shuddhalekhan from Tauri to Electron.
+This is a patch release that fixes the system tray icon in packaged builds and cleans up a diagnostic log bridge.
 
 ## What's Changed
 
-- Rebuilt the Windows desktop shell on Electron, Electron Vite, and React.
-- Replaced the Tauri release/update path with Electron Builder and Electron Updater.
-- Preserved the Windows tray workflow for dictation, transcription cleanup, update checks, and app exit.
-- Added Windows native integration through Koffi for global keyboard hooks and clipboard paste simulation.
-- Migrates existing legacy config from `.speech-2-text/config.json` into the new Electron config store on first run.
-- Added Bun test coverage for main-process orchestration, tray behavior, config migration, updater wiring, preload IPC, Whisper integration, recording pill positioning, and audio capture helpers.
+- Fixed tray icon not appearing in packaged builds by bundling the `icons/` directory via `extraResources` in the Electron Builder config and adding a fallback path resolution.
+- Removed the temporary `console-message` diagnostic logger that forwarded the audio window renderer console to the main process.
 
-## Install Note
+## Update Note
 
-Because the installed app runtime changed from Tauri to Electron, users with the previous Tauri build should uninstall the old app and install this Electron build manually from this GitHub release. Future updates can then be delivered through the Electron updater.
+If you already have the Electron-based Shuddhalekhan installed, the auto-updater will download and install this patch automatically.
