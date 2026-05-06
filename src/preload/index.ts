@@ -22,7 +22,7 @@ const ipc = {
     channel: K,
     callback: (...args: Parameters<MainToRendererChannels[K]>) => void
   ) => {
-    const wrapper = (_event: Electron.IpcRendererEvent, ...args: any[]) => {
+    const wrapper = (_event: Electron.IpcRendererEvent, ...args: unknown[]) => {
       callback(...args as Parameters<MainToRendererChannels[K]>);
     };
     ipcRenderer.on(channel, wrapper);

@@ -163,6 +163,23 @@ export async function checkForUpdates(options: { silent?: boolean } = {}): Promi
       }
       return currentStatus;
     }
+    const status: UpdateStatus = {
+      state: 'error',
+      currentVersion: app.getVersion(),
+      message: 'Update check failed: no update information was returned.',
+      checkedAt: now(),
+    };
+    setStatus(status);
+    if (!options.silent) {
+      await dialog.showMessageBox({
+        type: 'error',
+        title: 'Update Check Failed',
+        message: 'Shuddhalekhan could not confirm whether an update is available.',
+        detail: 'The update service did not return update information. Please try again later.',
+        buttons: ['OK'],
+      });
+    }
+    return status;
   } catch (err) {
     const status: UpdateStatus = {
       state: 'error',

@@ -159,7 +159,7 @@ ipcMain.handle('clipboard:inject-text', (_event, text: string) => {
   }, 50);
 });
 
-ipcMain.handle('app:get-info', () => {
+ipcMain.handle('app:get-info', async () => {
   return {
     name: app.name,
     version: app.getVersion(),

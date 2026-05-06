@@ -183,9 +183,9 @@ describe('main process IPC orchestration', () => {
     expect(simulatePaste).not.toHaveBeenCalled();
   });
 
-  it('proxies config, device, update, and recording pill events', () => {
+  it('proxies config, device, update, and recording pill events', async () => {
     expect(ipcHandlers.get('config:get')?.({})).toEqual(getConfig());
-    expect(ipcHandlers.get('app:get-info')?.({})).toEqual({
+    await expect(ipcHandlers.get('app:get-info')?.({})).resolves.toEqual({
       name: 'Shuddhalekhan',
       version: '3.1.0',
       isPackaged: false,

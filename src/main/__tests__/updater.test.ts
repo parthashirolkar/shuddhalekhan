@@ -97,4 +97,22 @@ describe('updater', () => {
       detail: 'network unavailable',
     }));
   });
+
+  it('does not leave stale status when update info is missing', async () => {
+    electronMock.app.isPackaged = true;
+    checkForUpdatesMock.mockResolvedValue(null);
+    const { checkForUpdates, getUpdateStatus } = await import(`../updater?test=${Date.now()}-missing-info`);
+
+    const status = await checkForUpdates();
+
+    expect(status).toEqual(expect.objectContaining({
+      state: 'error',
+      message: 'Update check failed: no update information was returned.',
+    }));
+    expect(getUpdateStatus()).toEqual(status);
+    expect(electronMock.dialog.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'error',
+      detail: 'The update service did not return update information. Please try again later.',
+    }));
+  });
 });
