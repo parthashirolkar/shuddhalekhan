@@ -37,12 +37,40 @@ jobs:
       - name: Build
         run: bun run build
 
+      - name: Check release publish state
+        id: release_state
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $tag = "v$version"
+          $releaseJson = gh release view $tag --json isDraft 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            "tag=$tag" >> $env:GITHUB_OUTPUT
+            "should_publish=true" >> $env:GITHUB_OUTPUT
+            Write-Host "Release $tag does not exist. Packaging and publishing will run."
+            exit 0
+          }
+
+          $release = $releaseJson | ConvertFrom-Json
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          if ($release.isDraft) {
+            "should_publish=true" >> $env:GITHUB_OUTPUT
+            Write-Host "Release $tag exists as a draft. Packaging and publishing will run."
+          } else {
+            "should_publish=false" >> $env:GITHUB_OUTPUT
+            Write-Host "Release $tag is already published. Skipping artifact publish to avoid duplicate release assets."
+          }
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Package and publish Electron app
+        if: steps.release_state.outputs.should_publish == 'true'
         run: bun run dist -- --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update GitHub release notes
+        if: steps.release_state.outputs.should_publish == 'true'
         shell: pwsh
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version

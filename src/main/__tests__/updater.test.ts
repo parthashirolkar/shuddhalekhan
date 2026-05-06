@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { electronMock, installElectronMock, resetElectronMock } from '../../test/electron-mock';
 
 const vi = { fn: mock, mock: mock.module };
+const originalConsoleError = console.error;
+const consoleError = vi.fn();
 
 type UpdaterListener = (...args: any[]) => void;
 
@@ -21,8 +23,14 @@ installElectronMock();
 mock.module('electron-updater', () => ({ autoUpdater }));
 
 describe('updater', () => {
+  afterAll(() => {
+    console.error = originalConsoleError;
+  });
+
   beforeEach(() => {
     resetElectronMock();
+    console.error = consoleError;
+    consoleError.mockClear();
     updaterListeners.clear();
     autoUpdater.autoDownload = false;
     autoUpdater.on.mockClear();
@@ -82,19 +90,19 @@ describe('updater', () => {
 
   it('records packaged update check failures', async () => {
     electronMock.app.isPackaged = true;
-    checkForUpdatesMock.mockRejectedValue(new Error('network unavailable'));
+    checkForUpdatesMock.mockRejectedValue(new Error('network unavailable with headers and stack trace'));
     const { checkForUpdates, getUpdateStatus } = await import(`../updater?test=${Date.now()}-error`);
 
     const status = await checkForUpdates();
 
     expect(status).toEqual(expect.objectContaining({
       state: 'error',
-      message: 'Update check failed: network unavailable',
+      message: 'Update check failed. Please try again later.',
     }));
     expect(getUpdateStatus()).toEqual(status);
     expect(electronMock.dialog.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
       type: 'error',
-      detail: 'network unavailable',
+      detail: 'Shuddhalekhan could not reach a valid update release. If this keeps happening, install the latest release manually from GitHub.',
     }));
   });
 
