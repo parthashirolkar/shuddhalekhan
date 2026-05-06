@@ -4,7 +4,7 @@
 
 Revive Agent Mode as an opt-in, voice-first, stateless command executor. `Ctrl + Win` remains Dictation. `Alt + Win` records a one-off Agent Mode command, transcribes it through the existing Whisper path, sends the transcript to a sidecar agent runtime, and shows minimal live status plus a final visual toast.
 
-## Phase 1: Recording Intent and Hotkeys
+## Phase 1: Recording Intent and Hotkeys — Done
 
 - Introduce a `RecordingIntent` type: `dictation | agent`.
 - Refactor recording state so start/stop/transcription keeps the active intent.
@@ -16,14 +16,14 @@ Revive Agent Mode as an opt-in, voice-first, stateless command executor. `Ctrl +
   - Dictation -> clipboard sandwich.
   - Agent -> provider/config validation and sidecar run start.
 
-## Phase 2: Recording Pill Modes
+## Phase 2: Recording Pill Modes — Done
 
 - Extend the recording pill to accept a mode.
 - Keep blue styling for Dictation.
 - Add red styling for Agent Mode.
 - Ensure pill behavior remains transient and hidden when idle.
 
-## Phase 3: Settings Window
+## Phase 3: Settings Window — Done
 
 - Add a real settings window opened only from the tray.
 - Keep the app tray-first; do not show settings on startup.
@@ -46,7 +46,7 @@ Revive Agent Mode as an opt-in, voice-first, stateless command executor. `Ctrl +
   - server status.
   - discovered tools and per-tool policy.
 
-## Phase 4: Config Schema
+## Phase 4: Config Schema — Done
 
 - Extend `AppConfig` with:
   - `agent.enabled`
@@ -60,7 +60,7 @@ Revive Agent Mode as an opt-in, voice-first, stateless command executor. `Ctrl +
 - Disabled tools are not exposed to the model.
 - Gmail preset is single-instance in v4.
 
-## Phase 5: Sidecar Build Boundary
+## Phase 5: Sidecar Build Boundary — Done
 
 - Add sidecar source under `src/agent/`.
 - Keep Electron lifecycle management in `src/main/`.
@@ -69,7 +69,7 @@ Revive Agent Mode as an opt-in, voice-first, stateless command executor. `Ctrl +
 - Reserve sidecar stdout for JSONL protocol only.
 - Send process logs to stderr/application logs.
 
-## Phase 6: JSONL Sidecar Protocol
+## Phase 6: JSONL Sidecar Protocol — Done
 
 - Implement Electron -> sidecar messages:
   - `config:update`
@@ -87,7 +87,7 @@ Revive Agent Mode as an opt-in, voice-first, stateless command executor. `Ctrl +
 - Every run-scoped message includes `agentRunId`.
 - Electron ignores stale events that do not match the current active run.
 
-## Phase 7: Sidecar Lifecycle and Single-Flight Runs
+## Phase 7: Sidecar Lifecycle and Single-Flight Runs — Done
 
 - Start sidecar lazily when Agent Mode is enabled and needed.
 - Stop sidecar when Agent Mode is disabled.
@@ -193,4 +193,3 @@ Revive Agent Mode as an opt-in, voice-first, stateless command executor. `Ctrl +
   - `bun run lint`
   - `bun run typecheck`
   - `bun test`
-
