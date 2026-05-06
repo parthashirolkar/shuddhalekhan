@@ -214,3 +214,8 @@ function writeString(view: DataView, offset: number, string: string): void {
     view.setUint8(offset + i, string.charCodeAt(i));
   }
 }
+
+export const __audioCaptureTestUtils = {
+  encodeWAV,
+  mergeBuffers,
+};

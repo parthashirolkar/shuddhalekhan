@@ -1,8 +1,7 @@
 import type { AppConfig } from '../types/ipc';
-import { getConfig } from './config';
 
 export async function transcribe(audioData: Uint8Array, config?: AppConfig): Promise<string> {
-  const { whisperUrl, removeFillerWords } = config ?? getConfig();
+  const { whisperUrl, removeFillerWords } = config ?? await loadRuntimeConfig();
 
   const form = new FormData();
   const blob = new Blob([audioData], { type: 'audio/wav' });
@@ -46,15 +45,25 @@ export async function transcribe(audioData: Uint8Array, config?: AppConfig): Pro
   return text;
 }
 
-const FILLER_WORDS_PATTERN = /\b(um|uh|ah|er|hmm)\b\.?/gi;
+const FILLER_WORDS_PATTERN = /\b(um|uh|ah|er|hmm)\b([.,!?;])?/gi;
 const DOUBLE_SPACE = /\s+/g;
 const LEADING_TRAILING_SPACE = /^\s+|\s+$/g;
 const PUNCTUATION_FIX = /\s+([.,!?;])/g;
+const LEADING_FILLER_PUNCTUATION = /^[,\s]+/;
 
 export function cleanFillerWords(text: string): string {
-  let cleaned = text.replace(FILLER_WORDS_PATTERN, '');
+  let cleaned = text.replace(FILLER_WORDS_PATTERN, (_match, _word, punctuation: string | undefined) => {
+    if (!punctuation || punctuation === ',') return '';
+    return punctuation;
+  });
   cleaned = cleaned.replace(DOUBLE_SPACE, ' ');
   cleaned = cleaned.replace(LEADING_TRAILING_SPACE, '');
   cleaned = cleaned.replace(PUNCTUATION_FIX, '$1');
+  cleaned = cleaned.replace(LEADING_FILLER_PUNCTUATION, '');
   return cleaned;
+}
+
+async function loadRuntimeConfig(): Promise<AppConfig> {
+  const { getConfig } = await import('./config');
+  return getConfig();
 }

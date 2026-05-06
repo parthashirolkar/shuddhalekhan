@@ -63,7 +63,7 @@ export function hideRecordingPill(): void {
   }
 }
 
-function positionPillWindow(window: BrowserWindow): void {
+export function positionPillWindow(window: Pick<BrowserWindow, 'setPosition'>): void {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.workAreaSize;
   const { x, y } = primaryDisplay.workArea;

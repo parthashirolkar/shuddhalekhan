@@ -41,7 +41,7 @@ Use `bun` exclusively. `pnpm` is only a fallback if `koffi` causes resolution is
 ## Lint rules
 - `@typescript-eslint/no-unused-vars` is error-level with `argsIgnorePattern: '^_'`.
 - `@typescript-eslint/no-explicit-any` is off.
-- `out/`, `release/`, `node_modules/`, `src-tauri/`, and `*.config.{ts,mjs}` are ignored.
+- `out/`, `release/`, `node_modules/`,and `*.config.{ts,mjs}` are ignored.
 
 ## No tests
 - There are no test scripts or test files. Run lint + typecheck as pre-commit verification.
