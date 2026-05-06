@@ -33,7 +33,14 @@ const getConfig = vi.fn(() => ({
 }));
 const simulatePaste = vi.fn();
 const checkForUpdates = vi.fn();
+const getUpdateStatus = vi.fn(() => ({
+  state: 'idle',
+  currentVersion: '3.1.0',
+  message: 'Shuddhalekhan v3.1.0',
+  checkedAt: null,
+}));
 const updateAudioDevices = vi.fn();
+const updateUpdaterStatus = vi.fn();
 const keyboardStart = vi.fn();
 const keyboardStop = vi.fn();
 
@@ -44,9 +51,9 @@ mock.module('../native/keyboard', () => ({
 mock.module('../native/clipboard', () => ({ simulatePaste }));
 mock.module('../audio-window', () => ({ createAudioWindow, getAudioWindow, destroyAudioWindow }));
 mock.module('../recording-pill', () => ({ showRecordingPill, hideRecordingPill, getRecordingPillWindow }));
-mock.module('../tray', () => ({ createTray: vi.fn(), updateAudioDevices }));
+mock.module('../tray', () => ({ createTray: vi.fn(), updateAudioDevices, updateUpdaterStatus }));
 mock.module('../config', () => ({ getConfig, setConfig }));
-mock.module('../updater', () => ({ setupUpdater: vi.fn(), checkForUpdates }));
+mock.module('../updater', () => ({ setupUpdater: vi.fn(), checkForUpdates, getUpdateStatus }));
 
 describe('main process IPC orchestration', () => {
   afterAll(() => {
@@ -66,6 +73,8 @@ describe('main process IPC orchestration', () => {
       loadURL: vi.fn(),
       loadFile: vi.fn(),
       on: vi.fn(),
+      isDestroyed: vi.fn(() => false),
+      webContents: { send },
     }));
     electronMock.ipcMain.handle.mockImplementation((channel: string, handler: (...args: any[]) => unknown) => {
       ipcHandlers.set(channel, handler);
@@ -93,7 +102,9 @@ describe('main process IPC orchestration', () => {
     })) as unknown as typeof fetch;
     simulatePaste.mockClear();
     checkForUpdates.mockClear();
+    getUpdateStatus.mockClear();
     updateAudioDevices.mockClear();
+    updateUpdaterStatus.mockClear();
     keyboardStart.mockClear();
     keyboardStop.mockClear();
     await import(`../index?test=${Date.now()}-${Math.random()}`);
@@ -101,6 +112,7 @@ describe('main process IPC orchestration', () => {
 
   it('registers the expected IPC handlers and listeners', () => {
     expect([...ipcHandlers.keys()].sort()).toEqual([
+      'app:get-info',
       'audio:get-devices',
       'audio:select-device',
       'audio:start-recording',
@@ -109,6 +121,7 @@ describe('main process IPC orchestration', () => {
       'config:get',
       'config:set',
       'updater:check',
+      'updater:get-status',
     ]);
     expect([...ipcListeners.keys()].sort()).toEqual([
       'audio-data-ready',
@@ -172,6 +185,12 @@ describe('main process IPC orchestration', () => {
 
   it('proxies config, device, update, and recording pill events', () => {
     expect(ipcHandlers.get('config:get')?.({})).toEqual(getConfig());
+    expect(ipcHandlers.get('app:get-info')?.({})).toEqual({
+      name: 'Shuddhalekhan',
+      version: '3.1.0',
+      isPackaged: false,
+    });
+    expect(ipcHandlers.get('updater:get-status')?.({})).toEqual(getUpdateStatus());
     ipcHandlers.get('config:set')?.({}, 'whisperUrl', 'http://new');
     ipcHandlers.get('audio:select-device')?.({}, 'mic-1');
     ipcHandlers.get('updater:check')?.({});

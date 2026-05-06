@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { startRecording, stopRecording, enumerateDevices, setSelectedDeviceId } from './audio-capture';
 import { RecordingPopup } from './RecordingPopup';
+import type { AppInfo, UpdateStatus } from '../types/ipc';
 import './App.css';
 
 async function sendAudioDevices(): Promise<void> {
@@ -69,14 +70,91 @@ function AudioWindow() {
 }
 
 function MainWindow() {
+  const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+
+  useEffect(() => {
+    window.electronAPI?.invoke('app:get-info')
+      .then(setAppInfo)
+      .catch((err) => {
+        console.error('Failed to load app info:', err);
+      });
+
+    window.electronAPI?.invoke('updater:get-status')
+      .then(setUpdateStatus)
+      .catch((err) => {
+        console.error('Failed to load update status:', err);
+      });
+
+    return window.electronAPI?.on('updater:status-changed', setUpdateStatus);
+  }, []);
+
+  const checkForUpdates = () => {
+    window.electronAPI?.invoke('updater:check')
+      .then(setUpdateStatus)
+      .catch((err) => {
+        console.error('Failed to check for updates:', err);
+      });
+  };
+
   return (
     <main className="container">
-      <h1>Shuddhalekhan</h1>
-      <p>System tray application running...</p>
-      <p>Hold Ctrl+Win to start recording</p>
-      <p>Release to stop and transcribe</p>
+      <section className="status-panel" aria-label="Application status">
+        <div className="title-row">
+          <div>
+            <h1>Shuddhalekhan</h1>
+            <p className="version">Version {appInfo?.version ?? '...'}</p>
+          </div>
+          <span className="state-badge">{getStatusLabel(updateStatus)}</span>
+        </div>
+
+        <div className="update-box">
+          <p>{updateStatus?.message ?? 'Update status has not loaded yet.'}</p>
+          {updateStatus?.checkedAt ? (
+            <time dateTime={updateStatus.checkedAt}>Checked {formatCheckedAt(updateStatus.checkedAt)}</time>
+          ) : null}
+        </div>
+
+        <button
+          type="button"
+          onClick={checkForUpdates}
+          disabled={updateStatus?.state === 'checking'}
+        >
+          {updateStatus?.state === 'checking' ? 'Checking...' : 'Check for Updates'}
+        </button>
+
+        <div className="hint-grid">
+          <span>Hold Ctrl+Win</span>
+          <span>Release to transcribe</span>
+        </div>
+      </section>
     </main>
   );
+}
+
+function getStatusLabel(status: UpdateStatus | null): string {
+  if (!status) return 'Loading';
+  switch (status.state) {
+    case 'available':
+    case 'downloading':
+    case 'downloaded':
+      return 'Update';
+    case 'latest':
+      return 'Latest';
+    case 'error':
+      return 'Issue';
+    case 'checking':
+      return 'Checking';
+    case 'idle':
+      return 'Ready';
+  }
+}
+
+function formatCheckedAt(value: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value));
 }
 
 function App() {

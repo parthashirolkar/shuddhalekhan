@@ -2,11 +2,13 @@ import { mock } from 'bun:test';
 
 export const electronMock = {
   app: {
+    name: 'Shuddhalekhan',
     isPackaged: false,
     whenReady: mock(() => Promise.resolve()),
     on: mock(),
     getPath: mock(() => '/home/tester'),
     getAppPath: mock(() => '/app'),
+    getVersion: mock(() => '3.1.0'),
     quit: mock(),
   },
   BrowserWindow: Object.assign(mock(), {
@@ -22,6 +24,7 @@ export const electronMock = {
   },
   dialog: {
     showErrorBox: mock(),
+    showMessageBox: mock(() => Promise.resolve({ response: 0 })),
   },
   session: {
     defaultSession: {
@@ -56,12 +59,15 @@ export function installElectronMock(): void {
 
 export function resetElectronMock(): void {
   electronMock.app.isPackaged = false;
+  electronMock.app.name = 'Shuddhalekhan';
   electronMock.app.whenReady.mockResolvedValue(undefined);
   electronMock.app.on.mockReset();
   electronMock.app.getPath.mockReset();
   electronMock.app.getPath.mockReturnValue('/home/tester');
   electronMock.app.getAppPath.mockReset();
   electronMock.app.getAppPath.mockReturnValue('/app');
+  electronMock.app.getVersion.mockReset();
+  electronMock.app.getVersion.mockReturnValue('3.1.0');
   electronMock.app.quit.mockReset();
   electronMock.BrowserWindow.mockReset();
   electronMock.BrowserWindow.getAllWindows.mockReset();
@@ -72,6 +78,8 @@ export function resetElectronMock(): void {
   electronMock.clipboard.readText.mockReturnValue('');
   electronMock.clipboard.writeText.mockReset();
   electronMock.dialog.showErrorBox.mockReset();
+  electronMock.dialog.showMessageBox.mockReset();
+  electronMock.dialog.showMessageBox.mockResolvedValue({ response: 0 });
   electronMock.session.defaultSession.setPermissionRequestHandler.mockReset();
   electronMock.screen.getPrimaryDisplay.mockReset();
   electronMock.Tray.mockReset();

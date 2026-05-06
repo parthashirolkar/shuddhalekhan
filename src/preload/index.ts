@@ -26,7 +26,9 @@ const ipc = {
       callback(...args as Parameters<MainToRendererChannels[K]>);
     };
     ipcRenderer.on(channel, wrapper);
-    return () => ipcRenderer.removeListener(channel, wrapper);
+    return () => {
+      ipcRenderer.removeListener(channel, wrapper);
+    };
   },
 };
 
