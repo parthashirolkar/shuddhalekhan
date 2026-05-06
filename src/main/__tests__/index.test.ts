@@ -37,6 +37,7 @@ const getConfig = vi.fn(() => ({
       model: '',
       apiKeyEnvVar: '',
     },
+    mcpServers: [],
   },
 }));
 const simulatePaste = vi.fn();
@@ -52,6 +53,10 @@ const updateUpdaterStatus = vi.fn();
 const openSettingsWindow = vi.fn();
 const keyboardStart = vi.fn();
 const keyboardStop = vi.fn();
+const agentStartRun = vi.fn(() => 'run-1');
+const agentStart = vi.fn();
+const agentStop = vi.fn();
+const agentGetActiveAgentRunId = vi.fn(() => null);
 
 installElectronMock();
 mock.module('../native/keyboard', () => ({
@@ -64,6 +69,14 @@ mock.module('../settings-window', () => ({ openSettingsWindow }));
 mock.module('../tray', () => ({ createTray: vi.fn(), updateAudioDevices, updateUpdaterStatus }));
 mock.module('../config', () => ({ getConfig, setConfig }));
 mock.module('../updater', () => ({ setupUpdater: vi.fn(), checkForUpdates, getUpdateStatus }));
+mock.module('../agent-sidecar', () => ({
+  AgentSidecarManager: class {
+    start = agentStart;
+    startRun = agentStartRun;
+    stop = agentStop;
+    getActiveAgentRunId = agentGetActiveAgentRunId;
+  },
+}));
 
 describe('main process IPC orchestration', () => {
   afterAll(() => {
@@ -118,6 +131,24 @@ describe('main process IPC orchestration', () => {
     openSettingsWindow.mockClear();
     keyboardStart.mockClear();
     keyboardStop.mockClear();
+    agentStartRun.mockClear();
+    agentStart.mockClear();
+    agentStop.mockClear();
+    agentGetActiveAgentRunId.mockClear();
+    getConfig.mockReturnValue({
+      whisperUrl: 'http://localhost:8080/inference',
+      selectedDeviceId: null,
+      removeFillerWords: true,
+      agent: {
+        enabled: false,
+        provider: {
+          baseUrl: '',
+          model: '',
+          apiKeyEnvVar: '',
+        },
+        mcpServers: [],
+      },
+    });
     await import(`../index?test=${Date.now()}-${Math.random()}`);
   });
 
@@ -188,7 +219,22 @@ describe('main process IPC orchestration', () => {
     expect(electronMock.clipboard.writeText).toHaveBeenLastCalledWith('original');
   });
 
-  it('routes agent recordings to the placeholder without injecting text', async () => {
+  it('routes agent recordings to the sidecar without injecting text', async () => {
+    const config = {
+      whisperUrl: 'http://localhost:8080/inference',
+      selectedDeviceId: null,
+      removeFillerWords: true,
+      agent: {
+        enabled: true,
+        provider: {
+          baseUrl: 'https://openrouter.ai/api/v1',
+          model: 'openai/gpt-4.1-mini',
+          apiKeyEnvVar: 'OPENROUTER_API_KEY',
+        },
+        mcpServers: [],
+      },
+    };
+    getConfig.mockReturnValue(config);
     ipcListeners.get('audio-window-ready')?.({});
     const [onStart] = keyboardStart.mock.calls[0] as [(intent: 'dictation' | 'agent') => void];
     onStart('agent');
@@ -197,10 +243,7 @@ describe('main process IPC orchestration', () => {
     await listenerPromise;
 
     expect(showRecordingPill).toHaveBeenCalledWith('agent');
-    expect(electronMock.dialog.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Agent Mode',
-      detail: 'transcribed text',
-    }));
+    expect(agentStartRun).toHaveBeenCalledWith('transcribed text', config);
     expect(simulatePaste).not.toHaveBeenCalled();
   });
 
@@ -228,6 +271,7 @@ describe('main process IPC orchestration', () => {
     ipcListeners.get('audio-duration-changed')?.({}, 12);
 
     expect(setConfig).toHaveBeenCalledWith('whisperUrl', 'http://new');
+    expect(agentStop).toHaveBeenCalled();
     expect(openSettingsWindow).toHaveBeenCalled();
     expect(setConfig).toHaveBeenCalledWith('selectedDeviceId', 'mic-1');
     expect(send).toHaveBeenCalledWith('audio:select-device', 'mic-1');
@@ -242,6 +286,7 @@ describe('main process IPC orchestration', () => {
     appListeners.get('quit')?.();
 
     expect(keyboardStop).toHaveBeenCalledTimes(2);
+    expect(agentStop).toHaveBeenCalledTimes(2);
     expect(destroyAudioWindow).toHaveBeenCalled();
   });
 });

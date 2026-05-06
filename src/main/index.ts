@@ -9,6 +9,7 @@ import { createTray, updateAudioDevices, updateUpdaterStatus } from './tray';
 import { getConfig, setConfig } from './config';
 import { transcribe } from './whisper';
 import { setupUpdater, checkForUpdates, getUpdateStatus } from './updater';
+import { AgentSidecarManager } from './agent-sidecar';
 import type { AppConfig, AudioDevice, RecordingIntent, UpdateStatus } from '../types/ipc';
 
 let mainWindow: BrowserWindow | null = null;
@@ -16,6 +17,31 @@ let isRecording = false;
 let isAudioWindowReady = false;
 let pendingStartRecording = false;
 let activeRecordingIntent: RecordingIntent | null = null;
+const agentSidecar = new AgentSidecarManager((event) => {
+  switch (event.type) {
+    case 'sidecar:ready':
+      console.log('Agent sidecar ready');
+      break;
+    case 'mcp:server-status':
+      console.log(`MCP server ${event.serverId}: ${event.status}`);
+      break;
+    case 'agent:status':
+      console.log(`Agent run ${event.agentRunId}: ${event.status}`);
+      break;
+    case 'approval:requested':
+      console.log(`Agent run ${event.agentRunId} requested approval for ${event.serverId}:${event.toolName}`);
+      break;
+    case 'agent:completed':
+      console.log(`Agent run ${event.agentRunId} completed: ${event.response}`);
+      break;
+    case 'agent:failed':
+      console.error(`Agent run ${event.agentRunId} failed: ${event.error}`);
+      break;
+    case 'agent:cancelled':
+      console.log(`Agent run ${event.agentRunId} cancelled`);
+      break;
+  }
+});
 
 function createMainWindow(): BrowserWindow {
   mainWindow = new BrowserWindow({
@@ -89,7 +115,7 @@ async function handleTranscription(audioData: Uint8Array): Promise<void> {
     if (!text) return;
 
     if (intent === 'agent') {
-      handleAgentTranscriptPlaceholder(text);
+      handleAgentTranscript(text);
       return;
     }
 
@@ -112,16 +138,16 @@ async function handleTranscription(audioData: Uint8Array): Promise<void> {
   }
 }
 
-function handleAgentTranscriptPlaceholder(text: string): void {
-  console.log(`Agent Mode transcript ready: ${text}`);
-  dialog.showMessageBox({
-    type: 'info',
-    title: 'Agent Mode',
-    message: 'Agent Mode transcript ready',
-    detail: text,
-  }).catch((err) => {
-    console.error('Failed to show Agent Mode placeholder:', err);
-  });
+function handleAgentTranscript(text: string): void {
+  const config = getConfig();
+
+  if (!config.agent.enabled) {
+    console.warn('Ignoring Agent Mode transcript because Agent Mode is disabled');
+    return;
+  }
+
+  const agentRunId = agentSidecar.startRun(text, config);
+  console.log(`Started Agent Mode run ${agentRunId}`);
 }
 
 function delay(ms: number): Promise<void> {
@@ -167,6 +193,12 @@ ipcMain.handle('config:get', () => {
 
 ipcMain.handle('config:set', (_event, key: keyof AppConfig, value: AppConfig[keyof AppConfig]) => {
   setConfig(key, value);
+  const config = getConfig();
+  if (!config.agent.enabled) {
+    agentSidecar.stop();
+  } else if (agentSidecar.getActiveAgentRunId()) {
+    agentSidecar.start(config);
+  }
 });
 
 ipcMain.handle('settings:open', () => {
@@ -282,9 +314,11 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   keyboardHook.stop();
+  agentSidecar.stop();
   destroyAudioWindow();
 });
 
 app.on('quit', () => {
   keyboardHook.stop();
+  agentSidecar.stop();
 });
