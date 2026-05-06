@@ -1,14 +1,12 @@
 name: Release Windows App
 
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches: [main]
   workflow_dispatch:
 
 jobs:
   release:
-    if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     permissions:
       contents: write
@@ -48,6 +46,13 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
-          gh release edit "v$version" --notes-file release-notes.md
+          $tag = "v$version"
+          $release = gh release view $tag --json id 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release edit $tag --notes-file release-notes.md
+          } else {
+            Write-Host "Release $tag not found. Creating..."
+            gh release create $tag --notes-file release-notes.md --title "Shuddhalekhan $version"
+          }
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
