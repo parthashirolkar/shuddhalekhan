@@ -86,6 +86,19 @@ describe('tray', () => {
     expect(createFromDataURL).toHaveBeenCalledWith(expect.stringContaining('data:image/svg+xml'));
   });
 
+  it('loads the packaged tray icon from extra resources before app bundle fallback', async () => {
+    electronMock.app.isPackaged = true;
+    Object.defineProperty(process, 'resourcesPath', {
+      configurable: true,
+      value: normalize('/resources'),
+    });
+    const { createTray } = await import(`../tray?test=${Date.now()}-packaged`);
+
+    createTray(vi.fn(), vi.fn());
+
+    expect(createFromPath).toHaveBeenCalledWith(normalize('/resources/icons/tray-icon.ico'));
+  });
+
   it('filters audio inputs and sends device selections to the audio window', async () => {
     audioWindow = { isDestroyed: () => false, webContents: { send } };
     const { createTray, updateAudioDevices } = await import(`../tray?test=${Date.now()}-3`);
