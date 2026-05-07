@@ -1,11 +1,26 @@
 import { createInterface } from 'readline';
+import { randomUUID } from 'crypto';
 import { logSidecar, parseElectronMessage, writeJsonLine } from './protocol';
 import { runAgent } from './runtime';
 import type { AppConfig } from '../types/ipc';
+import type { ApprovalDecisionMessage } from './protocol';
+import type { ToolApprovalDecision, ToolApprovalRequest } from './runtime';
 
 let config: AppConfig | null = null;
 let activeAgentRunId: string | null = null;
 let activeAbortController: AbortController | null = null;
+let pendingApproval: PendingApproval | null = null;
+let approvalQueue: Promise<void> = Promise.resolve();
+
+const APPROVAL_TIMEOUT_MS = 30_000;
+const APPROVAL_TIMEOUT_MESSAGE = 'Rejected: tool approval window expired.';
+
+type PendingApproval = {
+  agentRunId: string;
+  approvalId: string;
+  timeout: ReturnType<typeof setTimeout>;
+  resolve: (decision: ToolApprovalDecision) => void;
+};
 
 function main(): void {
   writeJsonLine({
@@ -30,6 +45,8 @@ function main(): void {
 }
 
 function handleLine(line: string): void {
+  if (!line.trim()) return;
+
   const message = parseElectronMessage(line);
   if (!message) {
     logSidecar('ignored unknown protocol message');
@@ -48,7 +65,7 @@ function handleLine(line: string): void {
       handleAgentCancel(message.agentRunId);
       break;
     case 'approval:decision':
-      logSidecar(`received approval decision ${message.decision}`);
+      handleApprovalDecision(message);
       break;
   }
 }
@@ -59,6 +76,7 @@ async function handleAgentStart(agentRunId: string, transcript: string): Promise
 
   if (previousAgentRunId && previousAbortController) {
     previousAbortController.abort();
+    rejectPendingApproval(previousAgentRunId, 'Rejected: agent run was cancelled.');
     writeJsonLine({ type: 'agent:cancelled', agentRunId: previousAgentRunId });
   }
 
@@ -93,10 +111,12 @@ async function handleAgentStart(agentRunId: string, transcript: string): Promise
       },
       onCancelled: () => {
         if (activeAgentRunId !== agentRunId) return;
+        rejectPendingApproval(agentRunId, 'Rejected: agent run was cancelled.');
         writeJsonLine({ type: 'agent:cancelled', agentRunId });
         activeAgentRunId = null;
         activeAbortController = null;
       },
+      requestToolApproval: (request) => requestToolApproval(agentRunId, request),
     });
   } catch (err) {
     if (activeAgentRunId !== agentRunId) return;
@@ -114,6 +134,7 @@ async function handleAgentStart(agentRunId: string, transcript: string): Promise
 function handleAgentCancel(agentRunId: string): void {
   if (activeAgentRunId === agentRunId && activeAbortController) {
     activeAbortController.abort();
+    rejectPendingApproval(agentRunId, 'Rejected: agent run was cancelled.');
     activeAgentRunId = null;
     activeAbortController = null;
   }
@@ -121,6 +142,83 @@ function handleAgentCancel(agentRunId: string): void {
     type: 'agent:cancelled',
     agentRunId,
   });
+}
+
+async function requestToolApproval(agentRunId: string, request: ToolApprovalRequest): Promise<ToolApprovalDecision> {
+  const previousQueue = approvalQueue;
+  let releaseQueue: () => void = () => undefined;
+  approvalQueue = new Promise<void>((resolve) => {
+    releaseQueue = resolve;
+  });
+
+  await previousQueue;
+
+  if (activeAgentRunId !== agentRunId) {
+    releaseQueue();
+    return { approved: false, message: 'Rejected: agent run is no longer active.' };
+  }
+
+  return new Promise<ToolApprovalDecision>((resolve) => {
+    const approvalId = randomUUID();
+    const expiresAt = new Date(Date.now() + APPROVAL_TIMEOUT_MS).toISOString();
+    const finish = (decision: ToolApprovalDecision) => {
+      if (pendingApproval?.approvalId === approvalId) {
+        clearTimeout(pendingApproval.timeout);
+        pendingApproval = null;
+      }
+      releaseQueue();
+      resolve(decision);
+    };
+
+    const timeout = setTimeout(() => {
+      writeJsonLine({ type: 'agent:status', agentRunId, status: 'Tool approval expired.' });
+      finish({ approved: false, message: APPROVAL_TIMEOUT_MESSAGE });
+    }, APPROVAL_TIMEOUT_MS);
+
+    pendingApproval = {
+      agentRunId,
+      approvalId,
+      timeout,
+      resolve: finish,
+    };
+
+    writeJsonLine({
+      type: 'approval:requested',
+      agentRunId,
+      approvalId,
+      serverId: request.serverId,
+      toolName: request.toolName,
+      modelToolName: request.modelToolName,
+      arguments: request.arguments,
+      expiresAt,
+    });
+  });
+}
+
+function handleApprovalDecision(message: ApprovalDecisionMessage): void {
+  if (
+    !pendingApproval ||
+    pendingApproval.agentRunId !== message.agentRunId ||
+    pendingApproval.approvalId !== message.approvalId
+  ) {
+    logSidecar('ignored stale approval decision');
+    return;
+  }
+
+  if (message.decision === 'approved') {
+    pendingApproval.resolve({ approved: true });
+    return;
+  }
+
+  pendingApproval.resolve({
+    approved: false,
+    message: message.message?.trim() || 'Rejected: user denied tool approval.',
+  });
+}
+
+function rejectPendingApproval(agentRunId: string, message: string): void {
+  if (!pendingApproval || pendingApproval.agentRunId !== agentRunId) return;
+  pendingApproval.resolve({ approved: false, message });
 }
 
 main();

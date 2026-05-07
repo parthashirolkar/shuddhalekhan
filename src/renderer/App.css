@@ -103,6 +103,10 @@ button:disabled {
   opacity: 0.65;
 }
 
+textarea {
+  font: inherit;
+}
+
 .hint-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -121,6 +125,150 @@ button:disabled {
   background: #191d21;
   font-size: 12px;
   line-height: 16px;
+}
+
+.agent-toast {
+  width: 100vw;
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 18px;
+  color: #f8fafb;
+  background:
+    linear-gradient(135deg, rgba(255, 106, 106, 0.18), rgba(241, 199, 91, 0.08)),
+    #111416;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.48);
+  overflow: hidden;
+}
+
+.agent-toast::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 18px 18px;
+  mask-image: linear-gradient(135deg, black, transparent 68%);
+}
+
+.toast-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.toast-kicker,
+.toast-timer {
+  color: #ffb2a6;
+  font-size: 11px;
+  line-height: 15px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.toast-timer {
+  min-width: 36px;
+  color: #f1d38a;
+  text-align: right;
+}
+
+.agent-toast h1 {
+  position: relative;
+  margin: 0 0 8px;
+  color: #ffffff;
+  font-size: 18px;
+  line-height: 23px;
+  font-weight: 720;
+  overflow-wrap: anywhere;
+}
+
+.toast-body {
+  position: relative;
+  display: -webkit-box;
+  margin: 0;
+  color: #d9dee2;
+  font-size: 13px;
+  line-height: 18px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.approval-toast .toast-body {
+  min-height: 38px;
+  max-height: 46px;
+  white-space: pre-wrap;
+}
+
+.agent-toast textarea {
+  position: relative;
+  width: 100%;
+  height: 38px;
+  margin-top: 10px;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 7px;
+  box-sizing: border-box;
+  color: #f4f7f8;
+  background: rgba(5, 7, 9, 0.58);
+  font-size: 12px;
+  line-height: 16px;
+  resize: none;
+  outline: none;
+}
+
+.agent-toast textarea:focus {
+  border-color: rgba(241, 199, 91, 0.74);
+  box-shadow: 0 0 0 3px rgba(241, 199, 91, 0.13);
+}
+
+.toast-actions {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.toast-actions button {
+  width: 96px;
+  height: 34px;
+  border-radius: 7px;
+}
+
+.toast-actions button.secondary {
+  color: #e8edf2;
+  background: #242a30;
+}
+
+.agent-toast ul {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-toast li {
+  max-width: 100%;
+  padding: 3px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  color: #cad2da;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 11px;
+  line-height: 15px;
+  overflow-wrap: anywhere;
 }
 
 .settings-shell {
@@ -301,6 +449,20 @@ button:disabled {
   font: inherit;
   font-size: 13px;
   outline: none;
+}
+
+.input-stack {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.field-warning {
+  color: #ffb2a6;
+  font-size: 12px;
+  line-height: 17px;
+  overflow-wrap: anywhere;
 }
 
 .setting-row input:focus {

@@ -68,8 +68,8 @@ describe('AgentSidecarManager', () => {
     const agentRunId = manager.startRun('check mail', config);
 
     expect(spawn).toHaveBeenCalledWith(
-      process.execPath,
-      ['D:\\git_repos\\speech-2-text\\out\\agent\\index.js'],
+      'bun.exe',
+      ['D:\\git_repos\\speech-2-text\\src\\agent\\index.ts'],
       expect.objectContaining({ stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     );
     expect(stdinWrite).toHaveBeenNthCalledWith(1, `${JSON.stringify({ type: 'config:update', config })}\n`);
@@ -81,6 +81,18 @@ describe('AgentSidecarManager', () => {
 
     stdoutLines.emit('line', JSON.stringify({ type: 'sidecar:ready', protocolVersion: 1 }));
     expect(events).toEqual([{ type: 'sidecar:ready', protocolVersion: 1 }]);
+  });
+
+  it('ignores blank stdout lines from the sidecar', async () => {
+    const events: unknown[] = [];
+    const { AgentSidecarManager } = await import(`../agent-sidecar?test=${Date.now()}-blank`);
+    const manager = new AgentSidecarManager((event: SidecarEvent) => events.push(event));
+
+    manager.startRun('check mail', config);
+    stdoutLines.emit('line', '');
+    stdoutLines.emit('line', '   ');
+
+    expect(events).toEqual([]);
   });
 
   it('cancels the active run before starting the next run', async () => {

@@ -75,6 +75,26 @@ describe('runAgent', () => {
     );
   });
 
+  it('fails clearly when a raw API key is entered instead of an environment variable name', async () => {
+    const callbacks = makeCallbacks();
+    const config = {
+      ...baseConfig,
+      agent: {
+        ...baseConfig.agent,
+        provider: {
+          ...baseConfig.agent.provider,
+          apiKeyEnvVar: 'sk-or-v1-test',
+        },
+      },
+    };
+
+    await runAgent('run-1', 'hello', config as never, new AbortController().signal, callbacks);
+
+    expect(callbacks.onFailed).toHaveBeenCalledWith(
+      'Settings contains an API key value, but Shuddhalekhan expects an environment variable name. Set OPENROUTER_API_KEY in your shell, restart bun run dev, and put OPENROUTER_API_KEY in Settings.'
+    );
+  });
+
   it('completes successfully with no tools', async () => {
     process.env.OPENROUTER_API_KEY = 'sk-test';
     generateTextMock.mockImplementation(async () => ({
@@ -222,6 +242,106 @@ describe('runAgent', () => {
     expect(toolsArg).not.toHaveProperty('srv1__delete');
     expect(toolsArg).not.toHaveProperty('search');
   });
+
+  it('requests approval before executing alwaysAsk tools', async () => {
+    process.env.OPENROUTER_API_KEY = 'sk-test';
+
+    const execute = mock(async () => 'result');
+    const mockTool = { description: 'test tool', inputSchema: {}, execute };
+    createMCPClientMock.mockImplementation(async () => ({
+      tools: async () => ({ search: mockTool }),
+      close: closeMock,
+    }));
+
+    generateTextMock.mockImplementation(async (options: { tools: Record<string, typeof mockTool> }) => {
+      const output = await options.tools.srv1__search.execute({ q: 'mail' }, {});
+      return {
+        text: String(output),
+        steps: [{ toolCalls: [{ toolName: 'srv1__search' }], toolResults: [{ toolName: 'srv1__search', result: output }] }],
+        toolCalls: [{ toolName: 'srv1__search' }],
+        toolResults: [{ toolName: 'srv1__search', result: output }],
+      };
+    });
+
+    const config = {
+      ...baseConfig,
+      agent: {
+        ...baseConfig.agent,
+        mcpServers: [
+          {
+            id: 'srv1',
+            displayName: 'Test Server',
+            enabled: true,
+            transport: { type: 'http', url: 'http://localhost:3000/mcp' },
+            discoveredTools: [],
+            toolPolicies: {},
+          },
+        ],
+      },
+    };
+
+    const callbacks = makeCallbacks();
+
+    await runAgent('run-1', 'hello', config as never, new AbortController().signal, callbacks);
+
+    expect(callbacks.requestToolApproval).toHaveBeenCalledWith({
+      serverId: 'srv1',
+      toolName: 'search',
+      modelToolName: 'srv1__search',
+      arguments: { q: 'mail' },
+    });
+    expect(execute).toHaveBeenCalledWith({ q: 'mail' }, {});
+    expect(callbacks.onCompleted).toHaveBeenCalledWith('result', ['Used srv1__search']);
+  });
+
+  it('returns denial feedback instead of executing denied tools', async () => {
+    process.env.OPENROUTER_API_KEY = 'sk-test';
+
+    const execute = mock(async () => 'result');
+    const mockTool = { description: 'test tool', inputSchema: {}, execute };
+    createMCPClientMock.mockImplementation(async () => ({
+      tools: async () => ({ send: mockTool }),
+      close: closeMock,
+    }));
+
+    generateTextMock.mockImplementation(async (options: { tools: Record<string, typeof mockTool> }) => {
+      const output = await options.tools.srv1__send.execute({ to: 'a@example.com' }, {});
+      return {
+        text: String(output),
+        steps: [{ toolCalls: [{ toolName: 'srv1__send' }], toolResults: [{ toolName: 'srv1__send', result: output }] }],
+        toolCalls: [{ toolName: 'srv1__send' }],
+        toolResults: [{ toolName: 'srv1__send', result: output }],
+      };
+    });
+
+    const config = {
+      ...baseConfig,
+      agent: {
+        ...baseConfig.agent,
+        mcpServers: [
+          {
+            id: 'srv1',
+            displayName: 'Test Server',
+            enabled: true,
+            transport: { type: 'http', url: 'http://localhost:3000/mcp' },
+            discoveredTools: [],
+            toolPolicies: {},
+          },
+        ],
+      },
+    };
+
+    const callbacks = makeCallbacks();
+    callbacks.requestToolApproval.mockImplementation(async () => ({
+      approved: false,
+      message: 'Rejected: user said no.',
+    }));
+
+    await runAgent('run-1', 'hello', config as never, new AbortController().signal, callbacks);
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(callbacks.onCompleted).toHaveBeenCalledWith('Rejected: user said no.', ['Used srv1__send']);
+  });
 });
 
 function makeCallbacks(): AgentRuntimeCallbacks & { [K in keyof AgentRuntimeCallbacks]: ReturnType<typeof mock> } {
@@ -230,5 +350,6 @@ function makeCallbacks(): AgentRuntimeCallbacks & { [K in keyof AgentRuntimeCall
     onCompleted: mock(() => undefined),
     onFailed: mock(() => undefined),
     onCancelled: mock(() => undefined),
+    requestToolApproval: mock(async () => ({ approved: true })),
   };
 }

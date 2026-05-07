@@ -98,7 +98,7 @@ Revive Agent Mode as an opt-in, voice-first, stateless command executor. `Ctrl +
   - during tool execution: abort where supported; otherwise wait for settlement but do not continue the cancelled loop.
   - after tool execution: audit side effects but do not update the current run.
 
-## Phase 8: Vercel AI SDK Runtime
+## Phase 8: Vercel AI SDK Runtime — Done
 
 - Use Vercel AI SDK with OpenAI-compatible provider configuration.
 - Use `@ai-sdk/mcp` for MCP tools.
@@ -109,7 +109,7 @@ Revive Agent Mode as an opt-in, voice-first, stateless command executor. `Ctrl +
 - If max steps are reached, produce a final no-tools status response.
 - MCP tools are optional; provider config is required.
 
-## Phase 9: Tool Policy Wrapper and Approval Flow
+## Phase 9: Tool Policy Wrapper and Approval Flow — Done
 
 - Wrap every exposed MCP tool.
 - Policy behavior:
@@ -123,7 +123,7 @@ Revive Agent Mode as an opt-in, voice-first, stateless command executor. `Ctrl +
 - Expired approval returns: `Rejected: tool approval window expired.`
 - Agent prompt instructs the agent to stop when it receives that timeout rejection.
 
-## Phase 10: Toast UI
+## Phase 10: Toast UI — Done
 
 - Add transient toast surfaces for:
   - config missing/invalid.

@@ -62,6 +62,12 @@ export interface RendererToMainInvokeChannels {
   'config:set': (key: keyof AppConfig, value: unknown) => void;
   'settings:open': () => void;
   'clipboard:inject-text': (text: string) => void;
+  'agent:approval-decision': (
+    agentRunId: string,
+    approvalId: string,
+    decision: 'approved' | 'denied',
+    message?: string
+  ) => void;
   'app:get-info': () => Promise<AppInfo>;
   'updater:get-status': () => Promise<UpdateStatus>;
   'updater:check': () => Promise<UpdateStatus>;
@@ -77,8 +83,45 @@ export interface MainToRendererChannels {
   'recording:stopped': () => void;
   'audio:level-changed': (level: number) => void;
   'audio:duration-changed': (seconds: number) => void;
+  'agent-toast:update': (state: AgentToastState) => void;
   'updater:status-changed': (status: UpdateStatus) => void;
 }
+
+export type AgentToastState =
+  | {
+      kind: 'status';
+      agentRunId: string;
+      message: string;
+    }
+  | {
+      kind: 'approval';
+      agentRunId: string;
+      approvalId: string;
+      serverId: string;
+      toolName: string;
+      modelToolName: string;
+      arguments: unknown;
+      expiresAt: string;
+    }
+  | {
+      kind: 'completed';
+      agentRunId: string;
+      response: string;
+      toolSummary: string[];
+    }
+  | {
+      kind: 'failed';
+      agentRunId: string;
+      error: string;
+    }
+  | {
+      kind: 'cancelled';
+      agentRunId: string;
+    }
+  | {
+      kind: 'config';
+      message: string;
+    };
 
 export interface AppConfig {
   whisperUrl: string;

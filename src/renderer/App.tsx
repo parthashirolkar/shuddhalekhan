@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { startRecording, stopRecording, enumerateDevices, setSelectedDeviceId } from './audio-capture';
 import { RecordingPopup } from './RecordingPopup';
 import { SettingsWindow } from './SettingsWindow';
+import { AgentToast } from './AgentToast';
 import type { AppInfo, RecordingIntent, UpdateStatus } from '../types/ipc';
 import './App.css';
 
@@ -173,6 +174,10 @@ function App() {
 
   if (hash === 'settings') {
     return <SettingsWindow />;
+  }
+
+  if (hash === 'agent-toast') {
+    return <AgentToast />;
   }
 
   return <MainWindow />;

@@ -6,6 +6,7 @@ import { createAudioWindow, getAudioWindow, destroyAudioWindow } from './audio-w
 import { showRecordingPill, hideRecordingPill, getRecordingPillWindow } from './recording-pill';
 import { openSettingsWindow } from './settings-window';
 import { createTray, updateAudioDevices, updateUpdaterStatus } from './tray';
+import { showAgentToast, hideAgentToast } from './agent-toast-window';
 import { getConfig, setConfig } from './config';
 import { transcribe } from './whisper';
 import { setupUpdater, checkForUpdates, getUpdateStatus } from './updater';
@@ -27,18 +28,37 @@ const agentSidecar = new AgentSidecarManager((event) => {
       break;
     case 'agent:status':
       console.log(`Agent run ${event.agentRunId}: ${event.status}`);
+      showAgentToast({ kind: 'status', agentRunId: event.agentRunId, message: event.status });
       break;
     case 'approval:requested':
       console.log(`Agent run ${event.agentRunId} requested approval for ${event.serverId}:${event.toolName}`);
+      showAgentToast({
+        kind: 'approval',
+        agentRunId: event.agentRunId,
+        approvalId: event.approvalId,
+        serverId: event.serverId,
+        toolName: event.toolName,
+        modelToolName: event.modelToolName,
+        arguments: event.arguments,
+        expiresAt: event.expiresAt,
+      });
       break;
     case 'agent:completed':
       console.log(`Agent run ${event.agentRunId} completed: ${event.response}`);
+      showAgentToast({
+        kind: 'completed',
+        agentRunId: event.agentRunId,
+        response: event.response,
+        toolSummary: event.toolSummary,
+      });
       break;
     case 'agent:failed':
       console.error(`Agent run ${event.agentRunId} failed: ${event.error}`);
+      showAgentToast({ kind: 'failed', agentRunId: event.agentRunId, error: event.error });
       break;
     case 'agent:cancelled':
       console.log(`Agent run ${event.agentRunId} cancelled`);
+      showAgentToast({ kind: 'cancelled', agentRunId: event.agentRunId });
       break;
   }
 });
@@ -143,6 +163,7 @@ function handleAgentTranscript(text: string): void {
 
   if (!config.agent.enabled) {
     console.warn('Ignoring Agent Mode transcript because Agent Mode is disabled');
+    showAgentToast({ kind: 'config', message: 'Agent Mode is disabled. Open Settings to enable it.' });
     return;
   }
 
@@ -217,6 +238,14 @@ ipcMain.handle('clipboard:inject-text', (_event, text: string) => {
     }, 100);
   }, 50);
 });
+
+ipcMain.handle(
+  'agent:approval-decision',
+  (_event, agentRunId: string, approvalId: string, decision: 'approved' | 'denied', message?: string) => {
+    agentSidecar.sendApprovalDecision(agentRunId, approvalId, decision, message);
+    hideAgentToast();
+  }
+);
 
 ipcMain.handle('app:get-info', async () => {
   return {

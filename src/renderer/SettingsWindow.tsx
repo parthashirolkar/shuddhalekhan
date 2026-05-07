@@ -142,9 +142,12 @@ export function SettingsWindow() {
               })}
             />
             <TextRow
-              label="API key environment variable"
+              label="API key env var name"
               value={config.agent.provider.apiKeyEnvVar}
               placeholder="OPENROUTER_API_KEY"
+              warning={looksLikeRawApiKey(config.agent.provider.apiKeyEnvVar)
+                ? 'Enter the environment variable name here, not the API key value. Example: OPENROUTER_API_KEY.'
+                : undefined}
               onChange={(apiKeyEnvVar) => updateAgent({
                 ...config.agent,
                 provider: { ...config.agent.provider, apiKeyEnvVar },
@@ -216,19 +219,28 @@ function TextRow({
   label,
   value,
   placeholder,
+  warning,
   onChange,
 }: {
   label: string;
   value: string;
   placeholder: string;
+  warning?: string;
   onChange: (value: string) => void;
 }) {
   return (
     <label className="setting-row input-row">
       <span>{label}</span>
-      <input value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
+      <span className="input-stack">
+        <input value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
+        {warning ? <small className="field-warning">{warning}</small> : null}
+      </span>
     </label>
   );
+}
+
+function looksLikeRawApiKey(value: string): boolean {
+  return /^sk-[A-Za-z0-9_-]/.test(value.trim());
 }
 
 function ReadOnlyRow({ label, value }: { label: string; value: string }) {

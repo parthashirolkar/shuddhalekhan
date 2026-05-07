@@ -57,6 +57,9 @@ const agentStartRun = vi.fn(() => 'run-1');
 const agentStart = vi.fn();
 const agentStop = vi.fn();
 const agentGetActiveAgentRunId = vi.fn(() => null);
+const agentSendApprovalDecision = vi.fn();
+const showAgentToast = vi.fn();
+const hideAgentToast = vi.fn();
 
 installElectronMock();
 mock.module('../native/keyboard', () => ({
@@ -69,12 +72,14 @@ mock.module('../settings-window', () => ({ openSettingsWindow }));
 mock.module('../tray', () => ({ createTray: vi.fn(), updateAudioDevices, updateUpdaterStatus }));
 mock.module('../config', () => ({ getConfig, setConfig }));
 mock.module('../updater', () => ({ setupUpdater: vi.fn(), checkForUpdates, getUpdateStatus }));
+mock.module('../agent-toast-window', () => ({ showAgentToast, hideAgentToast }));
 mock.module('../agent-sidecar', () => ({
   AgentSidecarManager: class {
     start = agentStart;
     startRun = agentStartRun;
     stop = agentStop;
     getActiveAgentRunId = agentGetActiveAgentRunId;
+    sendApprovalDecision = agentSendApprovalDecision;
   },
 }));
 
@@ -135,6 +140,9 @@ describe('main process IPC orchestration', () => {
     agentStart.mockClear();
     agentStop.mockClear();
     agentGetActiveAgentRunId.mockClear();
+    agentSendApprovalDecision.mockClear();
+    showAgentToast.mockClear();
+    hideAgentToast.mockClear();
     getConfig.mockReturnValue({
       whisperUrl: 'http://localhost:8080/inference',
       selectedDeviceId: null,
@@ -154,6 +162,7 @@ describe('main process IPC orchestration', () => {
 
   it('registers the expected IPC handlers and listeners', () => {
     expect([...ipcHandlers.keys()].sort()).toEqual([
+      'agent:approval-decision',
       'app:get-info',
       'audio:get-devices',
       'audio:select-device',
@@ -264,6 +273,7 @@ describe('main process IPC orchestration', () => {
     expect(ipcHandlers.get('updater:get-status')?.({})).toEqual(getUpdateStatus());
     ipcHandlers.get('config:set')?.({}, 'whisperUrl', 'http://new');
     ipcHandlers.get('settings:open')?.({});
+    ipcHandlers.get('agent:approval-decision')?.({}, 'run-1', 'approval-1', 'denied', 'no');
     ipcHandlers.get('audio:select-device')?.({}, 'mic-1');
     ipcHandlers.get('updater:check')?.({});
     ipcListeners.get('audio-devices')?.({}, [{ deviceId: 'mic-1', label: 'Mic', kind: 'audioinput' }]);
@@ -273,6 +283,8 @@ describe('main process IPC orchestration', () => {
     expect(setConfig).toHaveBeenCalledWith('whisperUrl', 'http://new');
     expect(agentStop).toHaveBeenCalled();
     expect(openSettingsWindow).toHaveBeenCalled();
+    expect(agentSendApprovalDecision).toHaveBeenCalledWith('run-1', 'approval-1', 'denied', 'no');
+    expect(hideAgentToast).toHaveBeenCalled();
     expect(setConfig).toHaveBeenCalledWith('selectedDeviceId', 'mic-1');
     expect(send).toHaveBeenCalledWith('audio:select-device', 'mic-1');
     expect(checkForUpdates).toHaveBeenCalled();

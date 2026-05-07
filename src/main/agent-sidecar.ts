@@ -24,7 +24,8 @@ export class AgentSidecarManager {
       return;
     }
 
-    this.child = spawn(process.execPath, [this.getSidecarEntryPath()], {
+    const launch = this.getSidecarLaunch();
+    this.child = spawn(launch.command, launch.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     });
@@ -115,6 +116,8 @@ export class AgentSidecarManager {
   }
 
   private handleStdoutLine(line: string): void {
+    if (!line.trim()) return;
+
     let event: SidecarEvent;
     try {
       event = JSON.parse(line) as SidecarEvent;
@@ -134,11 +137,21 @@ export class AgentSidecarManager {
     this.onEvent(event);
   }
 
-  private getSidecarEntryPath(): string {
+  private getSidecarLaunch(): { command: string; args: string[] } {
     if (app.isPackaged) {
-      return join(process.resourcesPath, 'app.asar', 'out', 'agent', 'index.js');
+      return {
+        command: process.execPath,
+        args: [join(process.resourcesPath, 'app.asar', 'out', 'agent', 'index.js')],
+      };
     }
 
-    return join(app.getAppPath(), 'out', 'agent', 'index.js');
+    return {
+      command: getBunCommand(),
+      args: [join(app.getAppPath(), 'src', 'agent', 'index.ts')],
+    };
   }
+}
+
+function getBunCommand(): string {
+  return process.platform === 'win32' ? 'bun.exe' : 'bun';
 }
