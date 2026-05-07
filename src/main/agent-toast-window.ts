@@ -8,11 +8,13 @@ let pendingState: AgentToastState | null = null;
 
 const TOAST_WIDTH = 420;
 const TOAST_HEIGHT = 190;
+const APPROVAL_TOAST_WIDTH = 460;
+const APPROVAL_TOAST_HEIGHT = 310;
 const TOAST_MARGIN = 24;
 
 export function showAgentToast(state: AgentToastState): void {
   const win = createAgentToastWindow();
-  positionToastWindow(win);
+  positionToastWindow(win, state.kind === 'approval');
 
   if (win.webContents.isLoading()) {
     pendingState = state;
@@ -53,7 +55,7 @@ function createAgentToastWindow(): BrowserWindow {
 
   toastWindow = new BrowserWindow({
     width: TOAST_WIDTH,
-    height: TOAST_HEIGHT,
+    height: APPROVAL_TOAST_HEIGHT,
     show: false,
     frame: false,
     transparent: true,
@@ -95,13 +97,15 @@ function createAgentToastWindow(): BrowserWindow {
   return toastWindow;
 }
 
-function positionToastWindow(win: BrowserWindow): void {
+function positionToastWindow(win: BrowserWindow, isApproval = false): void {
   const display = screen.getPrimaryDisplay();
   const { x, y, width, height } = display.workArea;
+  const toastWidth = isApproval ? APPROVAL_TOAST_WIDTH : TOAST_WIDTH;
+  const toastHeight = isApproval ? APPROVAL_TOAST_HEIGHT : TOAST_HEIGHT;
   win.setBounds({
-    x: x + width - TOAST_WIDTH - TOAST_MARGIN,
-    y: y + height - TOAST_HEIGHT - TOAST_MARGIN,
-    width: TOAST_WIDTH,
-    height: TOAST_HEIGHT,
+    x: x + width - toastWidth - TOAST_MARGIN,
+    y: y + height - toastHeight - TOAST_MARGIN,
+    width: toastWidth,
+    height: toastHeight,
   });
 }

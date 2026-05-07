@@ -129,9 +129,9 @@ textarea {
 
 .agent-toast {
   width: 100vw;
-  min-height: 100vh;
+  height: 100vh;
   box-sizing: border-box;
-  padding: 18px;
+  padding: 16px;
   color: #f8fafb;
   background:
     linear-gradient(135deg, rgba(255, 106, 106, 0.18), rgba(241, 199, 91, 0.08)),
@@ -140,6 +140,11 @@ textarea {
   border-radius: 10px;
   box-shadow: 0 22px 70px rgba(0, 0, 0, 0.48);
   overflow: hidden;
+}
+
+.approval-toast {
+  display: flex;
+  flex-direction: column;
 }
 
 .agent-toast::before {
@@ -183,10 +188,21 @@ textarea {
   position: relative;
   margin: 0 0 8px;
   color: #ffffff;
-  font-size: 18px;
-  line-height: 23px;
+  font-size: 16px;
+  line-height: 21px;
   font-weight: 720;
+  word-break: break-word;
   overflow-wrap: anywhere;
+}
+
+.approval-toast h1 {
+  flex: 0 0 auto;
+  display: -webkit-box;
+  max-height: 64px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .toast-body {
@@ -203,16 +219,24 @@ textarea {
 }
 
 .approval-toast .toast-body {
-  min-height: 38px;
-  max-height: 46px;
+  flex: 1 1 auto;
+  min-height: 42px;
+  max-height: none;
+  padding: 8px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  background: rgba(5, 7, 9, 0.34);
+  display: block;
+  overflow: auto;
   white-space: pre-wrap;
 }
 
 .agent-toast textarea {
   position: relative;
   width: 100%;
-  height: 38px;
-  margin-top: 10px;
+  flex: 0 0 auto;
+  height: 36px;
+  margin-top: 8px;
   padding: 7px 9px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 7px;
@@ -235,7 +259,8 @@ textarea {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 10px;
+  flex: 0 0 auto;
+  margin-top: 8px;
 }
 
 .toast-actions button {
