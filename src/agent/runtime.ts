@@ -1,10 +1,11 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { generateText, stepCountIs, type JSONValue, type Tool } from 'ai';
+import { stepCountIs, streamText, type JSONValue, type Tool } from 'ai';
 import type { AppConfig } from '../types/ipc';
 import { logSidecar } from './protocol';
 
 export interface AgentRuntimeCallbacks {
   onStatus(status: string): void;
+  onResponseDelta(textDelta: string, fullText: string): void;
   onCompleted(response: string, toolSummary: string[]): void;
   onFailed(error: string): void;
   onCancelled(): void;
@@ -203,7 +204,8 @@ export async function runAgent(
 
     callbacks.onStatus('Thinking...');
 
-    const result = await generateText({
+    let streamedResponse = '';
+    const result = streamText({
       model,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: transcript }],
@@ -211,6 +213,11 @@ export async function runAgent(
       providerOptions: getDefaultProviderOptions(provider.baseUrl),
       stopWhen: stepCountIs(5),
       abortSignal: signal,
+      onChunk: ({ chunk }) => {
+        if (chunk.type !== 'text-delta') return;
+        streamedResponse += chunk.text;
+        callbacks.onResponseDelta(chunk.text, streamedResponse);
+      },
       onStepFinish: ({ toolCalls }) => {
         if (toolCalls.length > 0) {
           const names = toolCalls.map((t) => String(t.toolName)).join(', ');
@@ -222,10 +229,16 @@ export async function runAgent(
       },
     });
 
-    let finalResponse = result.text;
+    let finalResponse = await result.text;
+    if (!streamedResponse && finalResponse) {
+      callbacks.onResponseDelta(finalResponse, finalResponse);
+    }
     const toolSummary: string[] = [];
+    const steps = await result.steps;
+    const toolCalls = await result.toolCalls;
+    const toolResults = await result.toolResults;
 
-    for (const step of result.steps) {
+    for (const step of steps) {
       for (const tc of step.toolCalls) {
         toolSummary.push(`Used ${String(tc.toolName)}`);
       }
@@ -234,19 +247,20 @@ export async function runAgent(
       }
     }
 
-    const reachedMaxSteps = result.steps.length >= 5;
-    const hasPendingToolCalls = result.toolCalls.length > result.toolResults.length;
+    const reachedMaxSteps = steps.length >= 5;
+    const hasPendingToolCalls = toolCalls.length > toolResults.length;
 
     if (reachedMaxSteps && hasPendingToolCalls) {
       callbacks.onStatus('Step limit reached. Summarizing...');
-      const fallback = await generateText({
+      let fallbackResponse = '';
+      const fallback = streamText({
         model,
         system: SYSTEM_PROMPT,
         messages: [
           { role: 'user', content: transcript },
           {
             role: 'assistant',
-            content: result.text || 'I was in the middle of using tools to complete your request.',
+            content: finalResponse || 'I was in the middle of using tools to complete your request.',
           },
           {
             role: 'user',
@@ -256,10 +270,18 @@ export async function runAgent(
         ],
         providerOptions: getDefaultProviderOptions(provider.baseUrl),
         abortSignal: signal,
+        onChunk: ({ chunk }) => {
+          if (chunk.type !== 'text-delta') return;
+          fallbackResponse += chunk.text;
+          callbacks.onResponseDelta(chunk.text, fallbackResponse);
+        },
       });
-      finalResponse = fallback.text;
+      finalResponse = await fallback.text;
+      if (!fallbackResponse && finalResponse) {
+        callbacks.onResponseDelta(finalResponse, finalResponse);
+      }
       toolSummary.push('Max step guardrail reached');
-      callbacks.onAudit?.('max_step_guardrail', { stepCount: result.steps.length });
+      callbacks.onAudit?.('max_step_guardrail', { stepCount: steps.length });
     }
 
     callbacks.onAudit?.('run_completed', { response: finalResponse, toolSummary });

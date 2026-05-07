@@ -64,6 +64,7 @@ const agentGetActiveAgentRunId = vi.fn(() => null);
 const agentSendApprovalDecision = vi.fn();
 const showAgentToast = vi.fn();
 const hideAgentToast = vi.fn();
+const handleAgentToastContentSize = vi.fn();
 
 installElectronMock();
 mock.module('../native/keyboard', () => ({
@@ -76,7 +77,7 @@ mock.module('../settings-window', () => ({ getSettingsWindow, openSettingsWindow
 mock.module('../tray', () => ({ createTray: vi.fn(), updateAudioDevices, updateUpdaterStatus }));
 mock.module('../config', () => ({ getConfig, setConfig }));
 mock.module('../updater', () => ({ setupUpdater: vi.fn(), checkForUpdates, getUpdateStatus }));
-mock.module('../agent-toast-window', () => ({ showAgentToast, hideAgentToast }));
+mock.module('../agent-toast-window', () => ({ showAgentToast, hideAgentToast, handleAgentToastContentSize }));
 mock.module('../agent-sidecar', () => ({
   AgentSidecarManager: class {
     start = agentStart;
@@ -148,6 +149,7 @@ describe('main process IPC orchestration', () => {
     agentSendApprovalDecision.mockClear();
     showAgentToast.mockClear();
     hideAgentToast.mockClear();
+    handleAgentToastContentSize.mockClear();
     getConfig.mockReturnValue({
       whisperUrl: 'http://localhost:8080/inference',
       selectedDeviceId: null,
@@ -182,6 +184,7 @@ describe('main process IPC orchestration', () => {
       'updater:get-status',
     ]);
     expect([...ipcListeners.keys()].sort()).toEqual([
+      'agent-toast:content-size',
       'audio-data-ready',
       'audio-devices',
       'audio-duration-changed',
@@ -286,6 +289,7 @@ describe('main process IPC orchestration', () => {
     ipcListeners.get('audio-devices')?.({}, [{ deviceId: 'mic-1', label: 'Mic', kind: 'audioinput' }]);
     ipcListeners.get('audio-level-changed')?.({}, 0.75);
     ipcListeners.get('audio-duration-changed')?.({}, 12);
+    ipcListeners.get('agent-toast:content-size')?.({}, 280);
 
     expect(setConfig).toHaveBeenCalledWith('whisperUrl', 'http://new');
     expect(agentStop).toHaveBeenCalled();
@@ -298,6 +302,7 @@ describe('main process IPC orchestration', () => {
     expect(updateAudioDevices).toHaveBeenCalledWith([{ deviceId: 'mic-1', label: 'Mic', kind: 'audioinput' }]);
     expect(send).toHaveBeenCalledWith('audio:level-changed', 0.75);
     expect(send).toHaveBeenCalledWith('audio:duration-changed', 12);
+    expect(handleAgentToastContentSize).toHaveBeenCalledWith(280);
   });
 
   it('stops native hooks and destroys the audio window before quit', () => {

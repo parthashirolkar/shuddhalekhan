@@ -6,7 +6,7 @@ import { createAudioWindow, getAudioWindow, destroyAudioWindow } from './audio-w
 import { showRecordingPill, hideRecordingPill, getRecordingPillWindow } from './recording-pill';
 import { getSettingsWindow, openSettingsWindow } from './settings-window';
 import { createTray, updateAudioDevices, updateUpdaterStatus } from './tray';
-import { showAgentToast, hideAgentToast } from './agent-toast-window';
+import { showAgentToast, hideAgentToast, handleAgentToastContentSize } from './agent-toast-window';
 import { getConfig, setConfig } from './config';
 import { transcribe } from './whisper';
 import { setupUpdater, checkForUpdates, getUpdateStatus } from './updater';
@@ -37,6 +37,9 @@ const agentSidecar = new AgentSidecarManager((event) => {
     case 'agent:status':
       console.log(`Agent run ${event.agentRunId}: ${event.status}`);
       showAgentToast({ kind: 'status', agentRunId: event.agentRunId, message: event.status });
+      break;
+    case 'agent:response-delta':
+      showAgentToast({ kind: 'streaming', agentRunId: event.agentRunId, response: event.response });
       break;
     case 'approval:requested':
       console.log(`Agent run ${event.agentRunId} requested approval for ${event.serverId}:${event.toolName}`);
@@ -359,6 +362,10 @@ ipcMain.on('audio-duration-changed', (_event, seconds: number) => {
   if (pill && !pill.isDestroyed()) {
     pill.webContents.send('audio:duration-changed', seconds);
   }
+});
+
+ipcMain.on('agent-toast:content-size', (_event, height: number) => {
+  handleAgentToastContentSize(height);
 });
 
 // App lifecycle

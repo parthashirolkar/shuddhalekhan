@@ -51,6 +51,7 @@ export interface RendererToMainSendChannels {
   'audio-devices': (devices: AudioDevice[]) => void;
   'audio-level-changed': (level: number) => void;
   'audio-duration-changed': (seconds: number) => void;
+  'agent-toast:content-size': (height: number) => void;
 }
 
 export interface RendererToMainInvokeChannels {
@@ -100,6 +101,11 @@ export type AgentToastState =
       kind: 'status';
       agentRunId: string;
       message: string;
+    }
+  | {
+      kind: 'streaming';
+      agentRunId: string;
+      response: string;
     }
   | {
       kind: 'approval';

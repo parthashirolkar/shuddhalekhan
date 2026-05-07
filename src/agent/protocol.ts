@@ -28,6 +28,13 @@ export type AgentStatusEvent = {
   status: string;
 };
 
+export type AgentResponseDeltaEvent = {
+  type: 'agent:response-delta';
+  agentRunId: string;
+  delta: string;
+  response: string;
+};
+
 export type ApprovalRequestedEvent = {
   type: 'approval:requested';
   agentRunId: string;
@@ -62,6 +69,7 @@ export type SidecarEvent =
   | McpServerStatusEvent
   | McpToolsDiscoveredEvent
   | AgentStatusEvent
+  | AgentResponseDeltaEvent
   | ApprovalRequestedEvent
   | AgentCompletedEvent
   | AgentFailedEvent

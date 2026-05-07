@@ -107,6 +107,10 @@ async function handleAgentStart(agentRunId: string, transcript: string): Promise
         auditStore.record(agentRunId, 'status', { status });
         writeJsonLine({ type: 'agent:status', agentRunId, status });
       },
+      onResponseDelta: (delta, response) => {
+        if (activeAgentRunId !== agentRunId) return;
+        writeJsonLine({ type: 'agent:response-delta', agentRunId, delta, response });
+      },
       onCompleted: (response, toolSummary) => {
         if (activeAgentRunId !== agentRunId) return;
         writeJsonLine({ type: 'agent:completed', agentRunId, response, toolSummary });

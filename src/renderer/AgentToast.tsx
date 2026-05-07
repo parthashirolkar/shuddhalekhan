@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { AgentToastState } from '../types/ipc';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -8,6 +8,8 @@ export function AgentToast() {
   const [state, setState] = useState<AgentToastState | null>(null);
   const [message, setMessage] = useState('');
   const [now, setNow] = useState(() => Date.now());
+  const toastRef = useRef<HTMLElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const remove = window.electronAPI?.on('agent-toast:update', (nextState) => {
@@ -28,11 +30,39 @@ export function AgentToast() {
     return Math.max(0, Math.ceil((new Date(state.expiresAt).getTime() - now) / 1000));
   }, [now, state]);
 
+  useLayoutEffect(() => {
+    if (!state || (state.kind !== 'streaming' && state.kind !== 'completed')) return undefined;
+    const element = toastRef.current;
+    if (!element) return undefined;
+
+    let frame = 0;
+    const publishSize = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const body = bodyRef.current;
+        const measuredHeight = body
+          ? element.scrollHeight - body.clientHeight + body.scrollHeight
+          : element.scrollHeight;
+        window.electronAPI?.send('agent-toast:content-size', measuredHeight);
+      });
+    };
+
+    publishSize();
+    const observer = new ResizeObserver(publishSize);
+    observer.observe(element);
+    if (bodyRef.current) observer.observe(bodyRef.current);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [state]);
+
   if (!state) return null;
 
   if (state.kind === 'approval') {
     return (
-      <main className="relative flex h-screen w-screen flex-col overflow-hidden rounded-[10px] border border-white/10 bg-[#111416] p-4 text-[#f8fafb] shadow-[0_22px_70px_rgba(0,0,0,0.48)]"
+      <main ref={toastRef} className="relative flex h-screen w-screen flex-col overflow-hidden rounded-[10px] border border-white/10 bg-[#111416] p-4 text-[#f8fafb] shadow-[0_22px_70px_rgba(0,0,0,0.48)]"
         style={{ background: 'linear-gradient(135deg, rgba(255,106,106,0.18), rgba(241,199,91,0.08)), #111416' }}>
         <div className="pointer-events-none fixed inset-0"
           style={{
@@ -90,7 +120,7 @@ export function AgentToast() {
   }
 
   return (
-    <main className={`relative flex h-screen w-screen flex-col overflow-hidden rounded-[10px] border border-white/10 bg-[#111416] p-4 text-[#f8fafb] shadow-[0_22px_70px_rgba(0,0,0,0.48)] ${state.kind}`}
+    <main ref={toastRef} className={`relative flex h-screen w-screen flex-col overflow-hidden rounded-[10px] border border-white/10 bg-[#111416] p-4 text-[#f8fafb] shadow-[0_22px_70px_rgba(0,0,0,0.48)] ${state.kind}`}
       style={state.kind === 'failed' || state.kind === 'cancelled'
         ? { background: 'linear-gradient(135deg, rgba(255,106,106,0.18), rgba(241,199,91,0.08)), #111416' }
         : undefined}>
@@ -107,9 +137,11 @@ export function AgentToast() {
         </Badge>
       </div>
 
-      <p className="relative m-0 line-clamp-4 overflow-hidden break-words text-[13px] leading-[18px] text-[#d9dee2]">
-        {getBody(state)}
-      </p>
+      <div ref={bodyRef} className="relative m-0 min-h-0 flex-1 overflow-auto break-words text-[13px] leading-[18px] text-[#d9dee2]">
+        {state.kind === 'streaming' || state.kind === 'completed'
+          ? renderMarkdown(getBody(state))
+          : <p className="m-0 whitespace-pre-wrap">{getBody(state)}</p>}
+      </div>
 
       {state.kind === 'completed' && state.toolSummary.length > 0 ? (
         <ul className="relative mt-3 flex flex-wrap gap-1.5 p-0">
@@ -132,6 +164,8 @@ function getTitle(state: AgentToastState): string {
   switch (state.kind) {
     case 'status':
       return 'Agent';
+    case 'streaming':
+      return 'Agent';
     case 'completed':
       return 'Complete';
     case 'failed':
@@ -149,6 +183,8 @@ function getBody(state: Exclude<AgentToastState, { kind: 'approval' }>): string 
   switch (state.kind) {
     case 'status':
       return state.message;
+    case 'streaming':
+      return state.response;
     case 'completed':
       return state.response;
     case 'failed':
@@ -169,4 +205,141 @@ function formatArguments(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function renderMarkdown(markdown: string): ReactNode {
+  const lines = markdown.split(/\r?\n/);
+  const nodes: ReactNode[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index] ?? '';
+
+    if (!line.trim()) {
+      index++;
+      continue;
+    }
+
+    if (line.trimStart().startsWith('```')) {
+      const codeLines: string[] = [];
+      index++;
+      while (index < lines.length && !(lines[index] ?? '').trimStart().startsWith('```')) {
+        codeLines.push(lines[index] ?? '');
+        index++;
+      }
+      if (index < lines.length) index++;
+      nodes.push(
+        <pre key={nodes.length} className="my-2 max-w-full overflow-auto rounded-md border border-white/10 bg-black/35 p-2 text-[12px] leading-[17px] text-[#edf1f4]">
+          <code>{codeLines.join('\n')}</code>
+        </pre>
+      );
+      continue;
+    }
+
+    const heading = /^(#{1,3})\s+(.+)$/.exec(line);
+    if (heading) {
+      nodes.push(
+        <p key={nodes.length} className="mb-1 mt-2 text-[13px] font-bold leading-[18px] text-white first:mt-0">
+          {renderInlineMarkdown(heading[2] ?? '')}
+        </p>
+      );
+      index++;
+      continue;
+    }
+
+    if (/^\s*[-*]\s+/.test(line)) {
+      const items: string[] = [];
+      while (index < lines.length && /^\s*[-*]\s+/.test(lines[index] ?? '')) {
+        items.push((lines[index] ?? '').replace(/^\s*[-*]\s+/, ''));
+        index++;
+      }
+      nodes.push(
+        <ul key={nodes.length} className="my-1.5 list-disc space-y-1 pl-4">
+          {items.map((item, itemIndex) => (
+            <li key={itemIndex}>{renderInlineMarkdown(item)}</li>
+          ))}
+        </ul>
+      );
+      continue;
+    }
+
+    if (/^\s*\d+\.\s+/.test(line)) {
+      const items: string[] = [];
+      while (index < lines.length && /^\s*\d+\.\s+/.test(lines[index] ?? '')) {
+        items.push((lines[index] ?? '').replace(/^\s*\d+\.\s+/, ''));
+        index++;
+      }
+      nodes.push(
+        <ol key={nodes.length} className="my-1.5 list-decimal space-y-1 pl-4">
+          {items.map((item, itemIndex) => (
+            <li key={itemIndex}>{renderInlineMarkdown(item)}</li>
+          ))}
+        </ol>
+      );
+      continue;
+    }
+
+    const paragraphLines: string[] = [];
+    while (
+      index < lines.length &&
+      (lines[index] ?? '').trim() &&
+      !(lines[index] ?? '').trimStart().startsWith('```') &&
+      !/^(#{1,3})\s+/.test(lines[index] ?? '') &&
+      !/^\s*[-*]\s+/.test(lines[index] ?? '') &&
+      !/^\s*\d+\.\s+/.test(lines[index] ?? '')
+    ) {
+      paragraphLines.push(lines[index] ?? '');
+      index++;
+    }
+
+    nodes.push(
+      <p key={nodes.length} className="my-1.5 whitespace-pre-wrap first:mt-0 last:mb-0">
+        {renderInlineMarkdown(paragraphLines.join('\n'))}
+      </p>
+    );
+  }
+
+  return nodes.length > 0 ? nodes : <p className="m-0" />;
+}
+
+function renderInlineMarkdown(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+
+    const token = match[0];
+    if (token.startsWith('`')) {
+      nodes.push(
+        <code key={nodes.length} className="rounded bg-white/10 px-1 py-[1px] text-[12px] text-[#f1d38a]">
+          {token.slice(1, -1)}
+        </code>
+      );
+    } else if (token.startsWith('**')) {
+      nodes.push(<strong key={nodes.length} className="font-bold text-white">{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith('*')) {
+      nodes.push(<em key={nodes.length} className="italic">{token.slice(1, -1)}</em>);
+    } else {
+      const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token);
+      const href = link?.[2] ?? '#';
+      nodes.push(
+        <a key={nodes.length} href={href} className="text-[#f1d38a] underline underline-offset-2">
+          {link?.[1] ?? token}
+        </a>
+      );
+    }
+
+    lastIndex = pattern.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  return nodes;
 }

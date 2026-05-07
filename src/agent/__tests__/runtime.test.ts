@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { runAgent } from '../runtime';
 import type { AgentRuntimeCallbacks } from '../runtime';
 
-const generateTextMock = mock();
+const streamTextMock = mock();
 const createOpenAICompatibleMock = mock(() => ({
   chatModel: mock(() => 'mock-model'),
 }));
@@ -16,7 +16,7 @@ mock.module('@ai-sdk/openai-compatible', () => ({
 }));
 
 mock.module('ai', () => ({
-  generateText: generateTextMock,
+  streamText: streamTextMock,
   stepCountIs: stepCountIsMock,
 }));
 
@@ -45,7 +45,7 @@ const baseConfig = {
 
 describe('runAgent', () => {
   beforeEach(() => {
-    generateTextMock.mockClear();
+    streamTextMock.mockClear();
     createOpenAICompatibleMock.mockClear();
     stepCountIsMock.mockClear();
     createMCPClientMock.mockClear();
@@ -97,7 +97,7 @@ describe('runAgent', () => {
 
   it('completes successfully with no tools', async () => {
     process.env.OPENROUTER_API_KEY = 'sk-test';
-    generateTextMock.mockImplementation(async () => ({
+    streamTextMock.mockImplementation(() => makeStreamResult({
       text: 'Done',
       steps: [{ toolCalls: [], toolResults: [] }],
       toolCalls: [],
@@ -113,7 +113,7 @@ describe('runAgent', () => {
   });
 
   it('does not require an API key for local providers', async () => {
-    generateTextMock.mockImplementation(async () => ({
+    streamTextMock.mockImplementation(() => makeStreamResult({
       text: 'Local done',
       steps: [],
       toolCalls: [],
@@ -144,13 +144,13 @@ describe('runAgent', () => {
 
   it('emits status during tool calls', async () => {
     process.env.OPENROUTER_API_KEY = 'sk-test';
-    generateTextMock.mockImplementation(async (options: { onStepFinish?: (args: unknown) => void }) => {
+    streamTextMock.mockImplementation((options: { onStepFinish?: (args: unknown) => void }) => {
       options.onStepFinish?.({
         toolCalls: [{ toolName: 'weather' }],
         toolResults: [{ toolName: 'weather', result: 'sunny' }],
         text: 'Weather is sunny',
       });
-      return {
+      return makeStreamResult({
         text: 'Weather is sunny',
         steps: [
           {
@@ -160,7 +160,7 @@ describe('runAgent', () => {
         ],
         toolCalls: [{ toolName: 'weather' }],
         toolResults: [{ toolName: 'weather', result: 'sunny' }],
-      };
+      });
     });
 
     const callbacks = makeCallbacks();
@@ -174,7 +174,7 @@ describe('runAgent', () => {
   it('performs fallback when max steps reached with pending tool calls', async () => {
     process.env.OPENROUTER_API_KEY = 'sk-test';
     let callCount = 0;
-    generateTextMock.mockImplementation(async (options: { onStepFinish?: (args: unknown) => void }) => {
+    streamTextMock.mockImplementation((options: { onStepFinish?: (args: unknown) => void; onChunk?: (args: TextChunkEvent) => void }) => {
       callCount++;
       if (callCount === 1) {
         options.onStepFinish?.({
@@ -182,7 +182,7 @@ describe('runAgent', () => {
           toolResults: [],
           text: '',
         });
-        return {
+        return makeStreamResult({
           text: '',
           steps: [
             { toolCalls: [{ toolName: 'search' }], toolResults: [] },
@@ -193,14 +193,16 @@ describe('runAgent', () => {
           ],
           toolCalls: [{ toolName: 'search' }],
           toolResults: [],
-        };
+        });
       }
-      return {
+      options.onChunk?.({ chunk: { type: 'text-delta', text: 'Step ' } });
+      options.onChunk?.({ chunk: { type: 'text-delta', text: 'limit fallback' } });
+      return makeStreamResult({
         text: 'Step limit fallback',
         steps: [],
         toolCalls: [],
         toolResults: [],
-      };
+      });
     });
 
     const callbacks = makeCallbacks();
@@ -208,16 +210,44 @@ describe('runAgent', () => {
     await runAgent('run-1', 'hello', baseConfig as never, {}, new AbortController().signal, callbacks);
 
     expect(callbacks.onStatus).toHaveBeenCalledWith('Step limit reached. Summarizing...');
+    expect(callbacks.onResponseDelta).toHaveBeenCalledWith('Step ', 'Step ');
+    expect(callbacks.onResponseDelta).toHaveBeenCalledWith('limit fallback', 'Step limit fallback');
     expect(callbacks.onCompleted).toHaveBeenCalledWith('Step limit fallback', expect.arrayContaining(['Max step guardrail reached']));
+  });
+
+  it('streams text deltas and completes with the accumulated response', async () => {
+    process.env.OPENROUTER_API_KEY = 'sk-test';
+    streamTextMock.mockImplementation((options: { onChunk?: (args: TextChunkEvent) => void }) => {
+      options.onChunk?.({ chunk: { type: 'text-delta', text: 'Hello' } });
+      options.onChunk?.({ chunk: { type: 'text-delta', text: ' world' } });
+      return makeStreamResult({
+        text: 'Hello world',
+        steps: [],
+        toolCalls: [],
+        toolResults: [],
+      });
+    });
+
+    const callbacks = makeCallbacks();
+
+    await runAgent('run-1', 'hello', baseConfig as never, {}, new AbortController().signal, callbacks);
+
+    expect(callbacks.onResponseDelta).toHaveBeenNthCalledWith(1, 'Hello', 'Hello');
+    expect(callbacks.onResponseDelta).toHaveBeenNthCalledWith(2, ' world', 'Hello world');
+    expect(callbacks.onCompleted).toHaveBeenCalledWith('Hello world', []);
   });
 
   it('calls onCancelled when aborted', async () => {
     process.env.OPENROUTER_API_KEY = 'sk-test';
-    generateTextMock.mockImplementation(async () => {
-      await new Promise((_resolve, reject) => {
-        setTimeout(() => reject(new Error('aborted')), 10);
-      });
-      return {} as never;
+    streamTextMock.mockImplementation(() => {
+      return {
+        text: new Promise((_resolve, reject) => {
+          setTimeout(() => reject(new Error('aborted')), 10);
+        }),
+        steps: Promise.resolve([]),
+        toolCalls: Promise.resolve([]),
+        toolResults: Promise.resolve([]),
+      };
     });
 
     const callbacks = makeCallbacks();
@@ -234,9 +264,31 @@ describe('runAgent', () => {
 function makeCallbacks(): AgentRuntimeCallbacks & { [K in keyof AgentRuntimeCallbacks]: ReturnType<typeof mock> } {
   return {
     onStatus: mock(() => undefined),
+    onResponseDelta: mock(() => undefined),
     onCompleted: mock(() => undefined),
     onFailed: mock(() => undefined),
     onCancelled: mock(() => undefined),
     requestToolApproval: mock(async () => ({ approved: true })),
+  };
+}
+
+type TextChunkEvent = {
+  chunk: {
+    type: 'text-delta';
+    text: string;
+  };
+};
+
+function makeStreamResult(result: {
+  text: string;
+  steps: Array<{ toolCalls: Array<{ toolName: string }>; toolResults: unknown[] }>;
+  toolCalls: unknown[];
+  toolResults: unknown[];
+}) {
+  return {
+    text: Promise.resolve(result.text),
+    steps: Promise.resolve(result.steps),
+    toolCalls: Promise.resolve(result.toolCalls),
+    toolResults: Promise.resolve(result.toolResults),
   };
 }
