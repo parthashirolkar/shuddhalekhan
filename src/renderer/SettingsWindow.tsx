@@ -222,24 +222,8 @@ function McpSettings({
   onChange: (servers: McpServerConfig[]) => void;
   onTest: (serverId: string) => void;
 }) {
-  const addCustomServer = () => {
-    onChange([
-      ...servers,
-      {
-        id: makeServerId('mcp'),
-        displayName: 'Local MCP Server',
-        enabled: false,
-        transport: {
-          type: 'stdio',
-          command: '',
-          args: [],
-          envVarNames: [],
-        },
-        discoveredTools: [],
-        toolPolicies: {},
-      },
-    ]);
-  };
+  const [draft, setDraft] = useState<McpServerConfig>(() => createBlankMcpServer());
+  const [editingServerId, setEditingServerId] = useState<string | null>(null);
 
   const addGmailPreset = () => {
     if (servers.some((server) => server.preset === 'gmail')) return;
@@ -267,72 +251,112 @@ function McpSettings({
     ]);
   };
 
-  const updateServer = (serverId: string, updater: (server: McpServerConfig) => McpServerConfig) => {
-    onChange(servers.map((server) => (server.id === serverId ? updater(server) : server)));
+  const saveDraft = () => {
+    const server = normalizeDraftServer(draft, editingServerId);
+    if (editingServerId) {
+      onChange(servers.map((item) => (item.id === editingServerId ? { ...server, id: editingServerId } : item)));
+    } else {
+      onChange([...servers, server]);
+    }
+    setDraft(createBlankMcpServer());
+    setEditingServerId(null);
   };
 
   const removeServer = (serverId: string) => {
     onChange(servers.filter((server) => server.id !== serverId));
+    if (editingServerId === serverId) {
+      setDraft(createBlankMcpServer());
+      setEditingServerId(null);
+    }
   };
 
   return (
     <div className="mcp-settings">
-      <div className="mcp-actions">
-        <button type="button" className="primary-action" onClick={addCustomServer}>
-          Add Server
-        </button>
-        <button type="button" className="secondary-action" disabled={servers.some((server) => server.preset === 'gmail')} onClick={addGmailPreset}>
-          Add Gmail Preset
-        </button>
-      </div>
-
-      {servers.length === 0 ? (
-        <div className="empty-mcp">No MCP servers configured.</div>
-      ) : (
-        <div className="mcp-list">
-          {servers.map((server) => (
-            <McpServerEditor
-              key={server.id}
-              server={server}
-              status={statuses[server.id]}
-              onChange={(updater) => updateServer(server.id, updater)}
-              onRemove={() => removeServer(server.id)}
-              onTest={() => onTest(server.id)}
-            />
-          ))}
+      <section className="mcp-form-panel">
+        <div className="mcp-section-head">
+          <div>
+            <h3>{editingServerId ? 'Edit MCP Server' : 'Add MCP Server'}</h3>
+            <p>Configure one server, save it, then test discovery from the configured list.</p>
+          </div>
+          <button type="button" className="secondary-action" disabled={servers.some((server) => server.preset === 'gmail')} onClick={addGmailPreset}>
+            Add Gmail Preset
+          </button>
         </div>
-      )}
+
+        <McpServerForm server={draft} onChange={setDraft} />
+
+        <div className="mcp-row-actions">
+          {editingServerId ? (
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => {
+                setDraft(createBlankMcpServer());
+                setEditingServerId(null);
+              }}
+            >
+              Cancel Edit
+            </button>
+          ) : null}
+          <button type="button" className="primary-action" onClick={saveDraft}>
+            {editingServerId ? 'Save Changes' : 'Save Server'}
+          </button>
+        </div>
+      </section>
+
+      <section className="mcp-configured-panel">
+        <div className="mcp-section-head">
+          <div>
+            <h3>Configured MCPs</h3>
+            <p>{servers.length === 0 ? 'No MCP servers configured.' : `${servers.length} server${servers.length === 1 ? '' : 's'} configured.`}</p>
+          </div>
+        </div>
+
+        {servers.length === 0 ? (
+          <div className="empty-mcp">Saved servers will appear here.</div>
+        ) : (
+          <div className="mcp-list">
+            {servers.map((server) => (
+              <ConfiguredMcpServer
+                key={server.id}
+                server={server}
+                status={statuses[server.id]}
+                onEdit={() => {
+                  setDraft(server);
+                  setEditingServerId(server.id);
+                }}
+                onRemove={() => removeServer(server.id)}
+                onTest={() => onTest(server.id)}
+                onPolicyChange={(nextServer) => {
+                  onChange(servers.map((item) => (item.id === server.id ? nextServer : item)));
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
 
-function McpServerEditor({
+function McpServerForm({
   server,
-  status,
   onChange,
-  onRemove,
-  onTest,
 }: {
   server: McpServerConfig;
-  status?: McpServerRuntimeStatus;
-  onChange: (updater: (server: McpServerConfig) => McpServerConfig) => void;
-  onRemove: () => void;
-  onTest: () => void;
+  onChange: (server: McpServerConfig) => void;
 }) {
   const transport = server.transport;
 
   return (
-    <section className="mcp-server">
-      <div className="mcp-server-head">
-        <label className="compact-field">
-          <span>Name</span>
-          <input value={server.displayName} onChange={(event) => onChange((current) => ({ ...current, displayName: event.target.value }))} />
-        </label>
-        <span className={`mcp-status ${status?.status ?? 'disconnected'}`}>{status?.status ?? 'not tested'}</span>
-      </div>
+    <>
+      <label className="compact-field">
+        <span>Name</span>
+        <input value={server.displayName} onChange={(event) => onChange({ ...server, displayName: event.target.value })} />
+      </label>
 
       <label className="mcp-enable">
-        <input type="checkbox" checked={server.enabled} onChange={(event) => onChange((current) => ({ ...current, enabled: event.target.checked }))} />
+        <input type="checkbox" checked={server.enabled} onChange={(event) => onChange({ ...server, enabled: event.target.checked })} />
         <span>Enabled for Agent Mode</span>
       </label>
 
@@ -344,13 +368,13 @@ function McpServerEditor({
             disabled={server.preset === 'gmail'}
             onChange={(event) => {
               const type = event.target.value;
-              onChange((current) => ({
-                ...current,
+              onChange({
+                ...server,
                 transport:
                   type === 'http'
                     ? { type: 'http', url: '' }
                     : { type: 'stdio', command: '', args: [], envVarNames: [] },
-              }));
+              });
             }}
           >
             <option value="stdio">stdio</option>
@@ -365,9 +389,7 @@ function McpServerEditor({
               value={transport.url}
               disabled={server.preset === 'gmail'}
               placeholder="http://localhost:3000/mcp"
-              onChange={(event) => onChange((current) => current.transport.type === 'http'
-                ? { ...current, transport: { ...current.transport, url: event.target.value } }
-                : current)}
+              onChange={(event) => onChange({ ...server, transport: { ...transport, url: event.target.value } })}
             />
           </label>
         ) : (
@@ -377,9 +399,7 @@ function McpServerEditor({
               <input
                 value={transport.command}
                 placeholder="bun"
-                onChange={(event) => onChange((current) => current.transport.type === 'stdio'
-                  ? { ...current, transport: { ...current.transport, command: event.target.value } }
-                  : current)}
+                onChange={(event) => onChange({ ...server, transport: { ...transport, command: event.target.value } })}
               />
             </label>
             <label className="compact-field">
@@ -387,9 +407,7 @@ function McpServerEditor({
               <input
                 value={transport.args.join(' ')}
                 placeholder="run path/to/server.ts"
-                onChange={(event) => onChange((current) => current.transport.type === 'stdio'
-                  ? { ...current, transport: { ...current.transport, args: splitList(event.target.value) } }
-                  : current)}
+                onChange={(event) => onChange({ ...server, transport: { ...transport, args: splitList(event.target.value) } })}
               />
             </label>
             <label className="compact-field span-2">
@@ -397,9 +415,7 @@ function McpServerEditor({
               <input
                 value={transport.envVarNames.join(', ')}
                 placeholder="GITHUB_TOKEN, GOOGLE_CLIENT_ID"
-                onChange={(event) => onChange((current) => current.transport.type === 'stdio'
-                  ? { ...current, transport: { ...current.transport, envVarNames: splitCommaList(event.target.value) } }
-                  : current)}
+                onChange={(event) => onChange({ ...server, transport: { ...transport, envVarNames: splitCommaList(event.target.value) } })}
               />
             </label>
           </>
@@ -413,14 +429,50 @@ function McpServerEditor({
           <code>{transport.oauth.clientSecretEnvVar || 'GOOGLE_CLIENT_SECRET'}</code>
         </div>
       ) : null}
+    </>
+  );
+}
+
+function ConfiguredMcpServer({
+  server,
+  status,
+  onEdit,
+  onRemove,
+  onTest,
+  onPolicyChange,
+}: {
+  server: McpServerConfig;
+  status?: McpServerRuntimeStatus;
+  onEdit: () => void;
+  onRemove: () => void;
+  onTest: () => void;
+  onPolicyChange: (server: McpServerConfig) => void;
+}) {
+  return (
+    <section className="mcp-server">
+      <div className="mcp-server-head">
+        <div className="mcp-card-title">
+          <strong>{server.displayName || 'Unnamed MCP Server'}</strong>
+          <small>{formatTransport(server)}</small>
+        </div>
+        <span className={`mcp-status ${status?.status ?? 'disconnected'}`}>{status?.status ?? 'not tested'}</span>
+      </div>
+
+      <div className="mcp-card-meta">
+        <span>{server.enabled ? 'Enabled for Agent Mode' : 'Disabled'}</span>
+        <span>{server.discoveredTools.length} tool{server.discoveredTools.length === 1 ? '' : 's'}</span>
+      </div>
 
       {status?.message ? <p className="mcp-error">{status.message}</p> : null}
 
-      <ToolPolicyEditor server={server} onChange={onChange} />
+      <ToolPolicyEditor server={server} onChange={onPolicyChange} />
 
       <div className="mcp-row-actions">
         <button type="button" className="secondary-action" onClick={onTest}>
           Test and Discover Tools
+        </button>
+        <button type="button" className="secondary-action" onClick={onEdit}>
+          Edit
         </button>
         <button type="button" className="danger-action" onClick={onRemove}>
           Remove
@@ -435,7 +487,7 @@ function ToolPolicyEditor({
   onChange,
 }: {
   server: McpServerConfig;
-  onChange: (updater: (server: McpServerConfig) => McpServerConfig) => void;
+  onChange: (server: McpServerConfig) => void;
 }) {
   if (server.discoveredTools.length === 0) {
     return <p className="tool-empty">No tools discovered yet.</p>;
@@ -457,13 +509,13 @@ function ToolPolicyEditor({
               value={policy}
               onChange={(event) => {
                 const nextPolicy = event.target.value as AgentToolApprovalPolicy;
-                onChange((current) => ({
-                  ...current,
+                onChange({
+                  ...server,
                   toolPolicies: {
-                    ...current.toolPolicies,
+                    ...server.toolPolicies,
                     [policyKey]: nextPolicy,
                   },
-                }));
+                });
               }}
             >
               <option value="alwaysAsk">Always ask</option>
@@ -535,6 +587,35 @@ function looksLikeRawApiKey(value: string): boolean {
 
 function makeServerId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}`;
+}
+
+function createBlankMcpServer(): McpServerConfig {
+  return {
+    id: makeServerId('mcp'),
+    displayName: '',
+    enabled: false,
+    transport: {
+      type: 'stdio',
+      command: '',
+      args: [],
+      envVarNames: [],
+    },
+    discoveredTools: [],
+    toolPolicies: {},
+  };
+}
+
+function normalizeDraftServer(server: McpServerConfig, existingId: string | null): McpServerConfig {
+  return {
+    ...server,
+    id: existingId ?? makeServerId('mcp'),
+    displayName: server.displayName.trim() || 'MCP Server',
+  };
+}
+
+function formatTransport(server: McpServerConfig): string {
+  if (server.transport.type === 'http') return server.transport.url || 'HTTP endpoint not set';
+  return [server.transport.command, ...server.transport.args].filter(Boolean).join(' ') || 'stdio command not set';
 }
 
 function splitCommaList(value: string): string[] {
