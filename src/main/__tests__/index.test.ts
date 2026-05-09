@@ -89,6 +89,21 @@ mock.module('../agent-sidecar', () => ({
 }));
 
 describe('main process IPC orchestration', () => {
+  const baseConfig = {
+    whisperUrl: 'http://localhost:8080/inference',
+    selectedDeviceId: null,
+    removeFillerWords: true,
+    agent: {
+      enabled: false,
+      provider: {
+        baseUrl: '',
+        model: '',
+        apiKeyEnvVar: '',
+      },
+      mcpServers: [],
+    },
+  };
+
   afterAll(() => {
     mock.restore();
   });
@@ -150,20 +165,7 @@ describe('main process IPC orchestration', () => {
     showAgentToast.mockClear();
     hideAgentToast.mockClear();
     handleAgentToastContentSize.mockClear();
-    getConfig.mockReturnValue({
-      whisperUrl: 'http://localhost:8080/inference',
-      selectedDeviceId: null,
-      removeFillerWords: true,
-      agent: {
-        enabled: false,
-        provider: {
-          baseUrl: '',
-          model: '',
-          apiKeyEnvVar: '',
-        },
-        mcpServers: [],
-      },
-    });
+    getConfig.mockReturnValue(baseConfig);
     await import(`../index?test=${Date.now()}-${Math.random()}`);
   });
 
@@ -341,5 +343,62 @@ describe('main process IPC orchestration', () => {
     expect(keyboardStop).toHaveBeenCalledTimes(2);
     expect(agentStop).toHaveBeenCalledTimes(2);
     expect(destroyAudioWindow).toHaveBeenCalled();
+  });
+
+  it('starts the agent sidecar on app ready when persisted Agent Mode is enabled', async () => {
+    const config = {
+      ...baseConfig,
+      agent: {
+        ...baseConfig.agent,
+        enabled: true,
+        provider: {
+          baseUrl: 'http://localhost:11434/v1',
+          model: 'local-model',
+          apiKeyEnvVar: '',
+        },
+        mcpServers: [
+          {
+            id: 'srv1',
+            displayName: 'Local MCP',
+            enabled: true,
+            transport: { type: 'http' as const, url: 'http://localhost:3000/mcp' },
+            discoveredTools: [],
+            toolPolicies: {},
+          },
+        ],
+      },
+    };
+    getConfig.mockReturnValue(config);
+
+    await import(`../index?test=${Date.now()}-agent-startup-enabled`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(agentStart).toHaveBeenCalledWith(config);
+  });
+
+  it('does not start the agent sidecar on app ready when Agent Mode is disabled', async () => {
+    const config = {
+      ...baseConfig,
+      agent: {
+        ...baseConfig.agent,
+        enabled: false,
+        mcpServers: [
+          {
+            id: 'srv1',
+            displayName: 'Local MCP',
+            enabled: true,
+            transport: { type: 'http' as const, url: 'http://localhost:3000/mcp' },
+            discoveredTools: [],
+            toolPolicies: {},
+          },
+        ],
+      },
+    };
+    getConfig.mockReturnValue(config);
+
+    await import(`../index?test=${Date.now()}-agent-startup-disabled`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(agentStart).not.toHaveBeenCalled();
   });
 });

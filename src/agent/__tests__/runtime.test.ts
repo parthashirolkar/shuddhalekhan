@@ -259,6 +259,55 @@ describe('runAgent', () => {
     expect(callbacks.onCancelled).toHaveBeenCalled();
   });
 
+  it('turns an empty no-tool model completion into a degraded visible response', async () => {
+    process.env.OPENROUTER_API_KEY = 'sk-test';
+    streamTextMock.mockReturnValue({
+      text: Promise.resolve(''),
+      steps: Promise.resolve([{ toolCalls: [], toolResults: [] }]),
+      toolCalls: Promise.resolve([]),
+      toolResults: Promise.resolve([]),
+    });
+
+    const callbacks = makeCallbacks();
+    await runAgent('run-1', 'say hello', baseConfig as never, {}, new AbortController().signal, callbacks);
+
+    expect(callbacks.onAudit).toHaveBeenCalledWith('empty_response_degraded', {
+      toolSummary: [],
+      hadToolActivity: false,
+    });
+    expect(callbacks.onCompleted).toHaveBeenCalledWith(
+      'The agent completed, but returned an empty response.',
+      []
+    );
+  });
+
+  it('summarizes observable tool activity when the final model response is empty', async () => {
+    process.env.OPENROUTER_API_KEY = 'sk-test';
+    streamTextMock.mockReturnValue({
+      text: Promise.resolve(''),
+      steps: Promise.resolve([
+        {
+          toolCalls: [{ toolName: 'srv1__search' }],
+          toolResults: [{ toolName: 'srv1__search', result: 'ok' }],
+        },
+      ]),
+      toolCalls: Promise.resolve([{ toolName: 'srv1__search' }]),
+      toolResults: Promise.resolve([{ toolName: 'srv1__search', result: 'ok' }]),
+    });
+
+    const callbacks = makeCallbacks();
+    await runAgent('run-1', 'search web', baseConfig as never, {}, new AbortController().signal, callbacks);
+
+    expect(callbacks.onAudit).toHaveBeenCalledWith('empty_response_degraded', {
+      toolSummary: ['Used srv1__search'],
+      hadToolActivity: true,
+    });
+    expect(callbacks.onCompleted).toHaveBeenCalledWith(
+      'The agent completed tool work but returned no final text.',
+      ['Used srv1__search']
+    );
+  });
+
 });
 
 function makeCallbacks(): AgentRuntimeCallbacks & { [K in keyof AgentRuntimeCallbacks]: ReturnType<typeof mock> } {
@@ -269,6 +318,7 @@ function makeCallbacks(): AgentRuntimeCallbacks & { [K in keyof AgentRuntimeCall
     onFailed: mock(() => undefined),
     onCancelled: mock(() => undefined),
     requestToolApproval: mock(async () => ({ approved: true })),
+    onAudit: mock(() => undefined),
   };
 }
 

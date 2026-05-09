@@ -54,6 +54,8 @@ Agent Mode is stateless by default. Each `Alt + Win` command is a one-off fire-a
 
 Agent Mode shows minimal live tool-status toasts while a run is active, such as checking Gmail, reading messages, drafting a reply, or waiting for approval. The final response toast includes the agent's final answer and a compact tool summary. Raw tool arguments, detailed results, and audit details are not shown in transient toasts unless needed for approval.
 
+An empty model response is not a successful user-facing final answer. If an agent run reaches completion with no final text, Shuddhalekhan treats it as a degraded completion: it shows a useful fallback based on observable tool activity when possible, otherwise shows a clear empty-response failure/degraded message, and records the condition in the audit trail.
+
 Agent Mode writes full local audit logs for agent runs, including transcripts, prompts, tool requests, tool arguments, approval decisions, tool results, errors, and final responses. The audit store is a small local SQLite database owned only by the agent sidecar so runs, tool calls, approvals, and results can be queried by ID during debugging. Electron main does not write to or depend on this database, and v4 does not expose it as a user-facing history feature. Runtime/process logs may still use the appropriate Shuddhalekhan application log directory on disk. Audit data is not sent to remote services by Shuddhalekhan.
 
 Electron owns MCP registry persistence and settings UI. The sidecar receives sanitized runtime config snapshots, connects to enabled MCP servers, discovers tools, and reports status/tool metadata back to Electron. MCP registry changes are hot-reloaded while the app is running: new servers connect, disabled servers disconnect, changed server connections restart, and tool policy changes apply without reconnecting. Active agent runs use the immutable MCP/tool-policy snapshot they started with; config changes apply to future runs.
@@ -68,6 +70,12 @@ Gmail OAuth credentials support two sources: `userProvided` for development/priv
 
 ### MCP Server Registry
 The user-managed list of MCP servers available to Agent Mode. Users configure the registry through Shuddhalekhan UI rather than editing JSON by hand. Each server entry describes how to launch or connect to the MCP server, whether it is enabled, and what approval policy applies to its tools.
+
+An MCP server marked "Enabled for Agent Mode" is part of the active Agent Mode tool environment, not merely saved for future use. When Agent Mode is enabled, Shuddhalekhan should keep enabled MCP servers connected, discover/register their tools, and make their runtime status visible without requiring the user to press a separate test or discovery button on every app start.
+
+MCP tool discovery is an automatic lifecycle step of connecting an enabled server. Manual UI actions may test or reconnect a server for diagnostics, but they are not the normal path for making tools available to Agent Mode. Persisted discovered-tool metadata is a settings cache for display and policy editing; the live runtime toolset comes from the sidecar's current connected MCP client snapshot.
+
+MCP server status labels describe live runtime state only. "Connected" is reserved for an active MCP client session in the sidecar. Cached discovered-tool metadata may still be displayed for policy editing when a server is inactive or disconnected, but cached tools do not imply that tools are currently registered for Agent Mode.
 
 Gmail is the first bundled preset in the registry UX, but it is not hard-coded as the only supported integration. The preset provides a friendly starting point without shipping user credentials.
 
@@ -102,11 +110,15 @@ Agent Mode is voice-first. A typed "run test command" entry may exist under a de
 
 Agent Mode is opt-in in v4. Users must enable it in settings before the `Alt + Win` global hotkey is active or agent tooling is available. Users who only use Dictation should not encounter Agent Mode UI or sidecar behavior.
 
+When Agent Mode is disabled, Shuddhalekhan does not keep the agent sidecar or MCP server connections alive. MCP Settings may still show saved server configuration and cached discovered-tool metadata, but those servers are inactive until Agent Mode is enabled. Manual diagnostic testing may temporarily connect a server without changing the active runtime environment.
+
 Agent Mode can be enabled even before provider or MCP setup is complete. Each Agent Mode run validates required configuration before starting the sidecar loop. If required fields such as model base URL, model name, or API key environment variable are missing or invalid, Shuddhalekhan shows a clear toast with a Settings entry point instead of silently failing.
 
 Agent Mode does not require Gmail or any MCP server to be configured. Model provider configuration is required to run the agent; MCP tools are optional. When no MCP tools are enabled, the agent runs with an empty toolset and responds accordingly.
 
 The agent sidecar starts lazily only when Agent Mode is enabled and needed, such as opening Agent settings, testing MCP configuration, or starting an Agent Mode run. Disabling Agent Mode cancels any active run, disconnects MCP servers, stops the sidecar, and deactivates `Alt + Win` behavior.
+
+The first MCP lifecycle repair should prioritize the user-visible contract over a broad lifecycle rewrite: hydrate persisted Agent Mode configuration on app startup, connect/discover enabled MCP servers automatically, keep the manual server action diagnostic, and guard against empty final responses. A fuller sidecar lifecycle state machine can follow only if these narrower fixes expose unresolved cancellation, crash recovery, or reconnect semantics.
 
 Hotkeys are hardcoded in v4: `Ctrl + Win` for Dictation and `Alt + Win` for Agent Mode. Implementation should still model them as named recording intents so both hotkeys can become user-configurable in a future version without rewriting the recording state machine.
 

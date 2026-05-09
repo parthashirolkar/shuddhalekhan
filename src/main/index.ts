@@ -399,6 +399,11 @@ app.whenReady().then(() => {
     openSettingsWindow();
   });
 
+  const startupConfig = getConfig();
+  if (startupConfig.agent.enabled) {
+    agentSidecar.start(startupConfig);
+  }
+
   setupUpdater(publishUpdateStatus);
   publishUpdateStatus(getUpdateStatus());
 

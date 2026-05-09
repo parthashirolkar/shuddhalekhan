@@ -571,7 +571,7 @@ function ConfiguredMcpServer({
 
         <div className="flex flex-wrap justify-end gap-2 pt-1">
           <Button type="button" variant="secondary" size="sm" onClick={onTest}>
-            {server.preset === 'gmail' ? 'Connect and Discover Tools' : 'Test and Discover Tools'}
+            Reconnect / Test
           </Button>
           <Button type="button" variant="secondary" size="sm" onClick={onEdit}>
             Edit

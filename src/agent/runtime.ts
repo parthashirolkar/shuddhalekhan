@@ -141,6 +141,24 @@ function stringifyForMessage(value: unknown): string {
   }
 }
 
+function normalizeFinalResponse(
+  response: string,
+  toolSummary: string[],
+  callbacks: AgentRuntimeCallbacks
+): string {
+  if (response.trim()) return response;
+
+  const hadToolActivity = toolSummary.length > 0;
+  callbacks.onAudit?.('empty_response_degraded', {
+    toolSummary,
+    hadToolActivity,
+  });
+
+  return hadToolActivity
+    ? 'The agent completed tool work but returned no final text.'
+    : 'The agent completed, but returned an empty response.';
+}
+
 export async function runAgent(
   _agentRunId: string,
   transcript: string,
@@ -283,6 +301,8 @@ export async function runAgent(
       toolSummary.push('Max step guardrail reached');
       callbacks.onAudit?.('max_step_guardrail', { stepCount: steps.length });
     }
+
+    finalResponse = normalizeFinalResponse(finalResponse, toolSummary, callbacks);
 
     callbacks.onAudit?.('run_completed', { response: finalResponse, toolSummary });
     callbacks.onCompleted(finalResponse, toolSummary);
