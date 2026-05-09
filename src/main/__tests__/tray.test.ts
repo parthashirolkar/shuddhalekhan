@@ -80,7 +80,7 @@ describe('tray', () => {
 
     expect(createFromPath).toHaveBeenCalledWith(normalize('/app/icons/tray-icon.ico'));
     expect(resize).toHaveBeenCalledWith({ width: 16, height: 16 });
-    expect(setToolTip).toHaveBeenCalledWith('Shuddhalekhan v3.1.0');
+    expect(setToolTip).toHaveBeenCalledWith('Shuddhalekhan v4.0.0');
     expect(setIgnoreDoubleClickEvents).toHaveBeenCalledWith(true);
     expect(setContextMenu).toHaveBeenCalled();
   });
@@ -158,14 +158,14 @@ describe('tray', () => {
     createTray(vi.fn());
     updateUpdaterStatus({
       state: 'latest',
-      currentVersion: '3.1.0',
-      latestVersion: '3.1.0',
-      message: "You're on the latest version: Shuddhalekhan v3.1.0.",
+      currentVersion: '4.0.0',
+      latestVersion: '4.0.0',
+      message: "You're on the latest version: Shuddhalekhan v4.0.0.",
       checkedAt: new Date().toISOString(),
     });
     const menu = buildFromTemplate.mock.calls.at(-1)?.[0];
 
-    expect(menu[0].label).toBe('Shuddhalekhan v3.1.0');
-    expect(menu[1].label).toBe('Update status: latest (3.1.0)');
+    expect(menu[0].label).toBe('Shuddhalekhan v4.0.0');
+    expect(menu[1].label).toBe('Update status: latest (4.0.0)');
   });
 });

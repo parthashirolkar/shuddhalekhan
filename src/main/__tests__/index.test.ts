@@ -44,8 +44,8 @@ const simulatePaste = vi.fn();
 const checkForUpdates = vi.fn();
 const getUpdateStatus = vi.fn(() => ({
   state: 'idle',
-  currentVersion: '3.1.0',
-  message: 'Shuddhalekhan v3.1.0',
+  currentVersion: '4.0.0',
+  message: 'Shuddhalekhan v4.0.0',
   checkedAt: null,
 }));
 const updateAudioDevices = vi.fn();
@@ -307,7 +307,7 @@ describe('main process IPC orchestration', () => {
     expect(ipcHandlers.get('config:get')?.({})).toEqual(getConfig());
     await expect(ipcHandlers.get('app:get-info')?.({})).resolves.toEqual({
       name: 'Shuddhalekhan',
-      version: '3.1.0',
+      version: '4.0.0',
       isPackaged: false,
     });
     expect(ipcHandlers.get('updater:get-status')?.({})).toEqual(getUpdateStatus());

@@ -1,15 +1,17 @@
-# Shuddhalekhan 3.1.0
+# Shuddhalekhan 4.0.0
 
-This release marks the first fully functioning Electron port of Shuddhalekhan, with clearer app status and update visibility across the main window and system tray.
+This release revives Agent Mode as a voice-first MCP client while keeping Dictation focused and unchanged.
 
 ## What's Changed
 
-- Added app version and update status to the main window.
-- Added update status to the system tray menu, including checking, downloading, ready-to-install, latest, and error states.
-- Added typed updater IPC channels for fetching app info, reading current update status, and manually checking for updates.
-- Improved updater handling for packaged builds, development builds, download progress, downloaded updates, and failed checks.
-- Added regression tests for updater lifecycle behavior and updated tray/main IPC coverage.
+- Added Agent Mode behind the `Alt + Win` recording intent, separate from `Ctrl + Win` Dictation.
+- Added a local agent sidecar using the Vercel AI SDK and OpenAI-compatible providers.
+- Added MCP server configuration, connection, tool discovery, per-tool approval policies, and approval toasts.
+- Enabled persisted Agent Mode MCP servers to reconnect and register tools automatically on app startup.
+- Added guarded final agent toasts so empty model completions show a useful degraded response instead of a blank "Complete" notification.
+- Added local audit logging for agent runs, tool requests, approvals, results, failures, and final responses.
+- Added Settings UI for Agent provider configuration, MCP servers, Gmail preset setup, and tool policies.
 
 ## Update Note
 
-If you already have the Electron-based Shuddhalekhan installed, the auto-updater will download and install this release automatically once it is published.
+This is a major Agent Mode release. Existing Dictation behavior is preserved, and Agent Mode remains opt-in from Settings.
