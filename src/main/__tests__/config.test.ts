@@ -50,6 +50,15 @@ describe('config store', () => {
       whisperUrl: 'http://localhost:8080/inference',
       selectedDeviceId: null,
       removeFillerWords: true,
+      agent: {
+        enabled: false,
+        provider: {
+          baseUrl: '',
+          model: '',
+          apiKeyEnvVar: '',
+        },
+        mcpServers: [],
+      },
     });
   });
 
@@ -64,6 +73,15 @@ describe('config store', () => {
       whisperUrl: 'http://localhost:8080/inference',
       selectedDeviceId: 'usb-mic',
       removeFillerWords: false,
+      agent: {
+        enabled: false,
+        provider: {
+          baseUrl: '',
+          model: '',
+          apiKeyEnvVar: '',
+        },
+        mcpServers: [],
+      },
     });
   });
 
@@ -81,6 +99,15 @@ describe('config store', () => {
       whisperUrl: 'http://legacy.test/inference',
       selectedDeviceId: 'legacy-mic',
       removeFillerWords: false,
+      agent: {
+        enabled: false,
+        provider: {
+          baseUrl: '',
+          model: '',
+          apiKeyEnvVar: '',
+        },
+        mcpServers: [],
+      },
     });
     expect(readFileSync).toHaveBeenCalledWith(normalize('/home/tester/.speech-2-text/config.json'), 'utf-8');
     expect(unlinkSync).toHaveBeenCalledWith(normalize('/home/tester/.speech-2-text/config.json'));
@@ -96,7 +123,85 @@ describe('config store', () => {
       whisperUrl: 'http://localhost:8080/inference',
       selectedDeviceId: null,
       removeFillerWords: true,
+      agent: {
+        enabled: false,
+        provider: {
+          baseUrl: '',
+          model: '',
+          apiKeyEnvVar: '',
+        },
+        mcpServers: [],
+      },
     });
     expect(unlinkSync).not.toHaveBeenCalled();
+  });
+
+  it('defaults newly discovered MCP tools to alwaysAsk and keeps one Gmail preset', async () => {
+    existsSync.mockReturnValue(false);
+    const { getConfig, setConfig } = await import(`../config?test=${Date.now()}-5`);
+
+    setConfig('agent', {
+      enabled: true,
+      provider: {
+        baseUrl: 'https://openrouter.ai/api/v1',
+        model: 'openai/gpt-4.1-mini',
+        apiKeyEnvVar: 'OPENROUTER_API_KEY',
+      },
+      mcpServers: [
+        {
+          id: 'gmail-primary',
+          displayName: 'Gmail',
+          enabled: true,
+          preset: 'gmail',
+          transport: {
+            type: 'http',
+            url: 'https://gmailmcp.googleapis.com/mcp/v1',
+          },
+          discoveredTools: [
+            {
+              name: 'draft_email',
+              description: 'Draft an email',
+              discoveredAt: '2026-05-07T00:00:00.000Z',
+            },
+          ],
+          toolPolicies: {},
+        },
+        {
+          id: 'gmail-secondary',
+          displayName: 'Gmail duplicate',
+          enabled: true,
+          preset: 'gmail',
+          transport: {
+            type: 'http',
+            url: 'https://gmailmcp.googleapis.com/mcp/v1',
+          },
+          discoveredTools: [],
+          toolPolicies: {},
+        },
+      ],
+    });
+
+    expect(getConfig().agent.mcpServers).toEqual([
+      {
+        id: 'gmail-primary',
+        displayName: 'Gmail',
+        enabled: true,
+        preset: 'gmail',
+        transport: {
+          type: 'http',
+          url: 'https://gmailmcp.googleapis.com/mcp/v1',
+        },
+        discoveredTools: [
+          {
+            name: 'draft_email',
+            description: 'Draft an email',
+            discoveredAt: '2026-05-07T00:00:00.000Z',
+          },
+        ],
+        toolPolicies: {
+          'gmail-primary:draft_email': 'alwaysAsk',
+        },
+      },
+    ]);
   });
 });

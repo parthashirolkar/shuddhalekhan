@@ -45,8 +45,8 @@ describe('updater', () => {
 
     expect(status).toEqual(expect.objectContaining({
       state: 'latest',
-      currentVersion: '3.1.0',
-      latestVersion: '3.1.0',
+      currentVersion: '4.0.0',
+      latestVersion: '4.0.0',
       message: 'Update checks run only in the packaged Windows app.',
     }));
     expect(electronMock.dialog.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
@@ -71,7 +71,7 @@ describe('updater', () => {
     expect(checkForUpdatesMock).toHaveBeenCalled();
     expect(onStatusChanged).toHaveBeenCalledWith(expect.objectContaining({
       state: 'checking',
-      currentVersion: '3.1.0',
+      currentVersion: '4.0.0',
     }));
     expect(onStatusChanged).toHaveBeenCalledWith(expect.objectContaining({
       state: 'available',

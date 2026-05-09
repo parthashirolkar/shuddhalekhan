@@ -27,7 +27,7 @@ export default tseslint.config(
       'src-tauri/',
       'dist/',
       'build/',
-      '*.config.{ts,mjs}',
+      'src/renderer/components/ui/',
     ],
   }
 );

@@ -30,19 +30,41 @@ const getConfig = vi.fn(() => ({
   whisperUrl: 'http://localhost:8080/inference',
   selectedDeviceId: null,
   removeFillerWords: true,
+  agent: {
+    enabled: false,
+    provider: {
+      baseUrl: '',
+      model: '',
+      apiKeyEnvVar: '',
+    },
+    mcpServers: [],
+  },
 }));
 const simulatePaste = vi.fn();
 const checkForUpdates = vi.fn();
 const getUpdateStatus = vi.fn(() => ({
   state: 'idle',
-  currentVersion: '3.1.0',
-  message: 'Shuddhalekhan v3.1.0',
+  currentVersion: '4.0.0',
+  message: 'Shuddhalekhan v4.0.0',
   checkedAt: null,
 }));
 const updateAudioDevices = vi.fn();
 const updateUpdaterStatus = vi.fn();
+const openSettingsWindow = vi.fn();
+const getSettingsWindow = vi.fn(() => ({
+  webContents: { send },
+  isDestroyed: vi.fn(() => false),
+}));
 const keyboardStart = vi.fn();
 const keyboardStop = vi.fn();
+const agentStartRun = vi.fn(() => 'run-1');
+const agentStart = vi.fn();
+const agentStop = vi.fn();
+const agentGetActiveAgentRunId = vi.fn(() => null);
+const agentSendApprovalDecision = vi.fn();
+const showAgentToast = vi.fn();
+const hideAgentToast = vi.fn();
+const handleAgentToastContentSize = vi.fn();
 
 installElectronMock();
 mock.module('../native/keyboard', () => ({
@@ -51,11 +73,37 @@ mock.module('../native/keyboard', () => ({
 mock.module('../native/clipboard', () => ({ simulatePaste }));
 mock.module('../audio-window', () => ({ createAudioWindow, getAudioWindow, destroyAudioWindow }));
 mock.module('../recording-pill', () => ({ showRecordingPill, hideRecordingPill, getRecordingPillWindow }));
+mock.module('../settings-window', () => ({ getSettingsWindow, openSettingsWindow }));
 mock.module('../tray', () => ({ createTray: vi.fn(), updateAudioDevices, updateUpdaterStatus }));
 mock.module('../config', () => ({ getConfig, setConfig }));
 mock.module('../updater', () => ({ setupUpdater: vi.fn(), checkForUpdates, getUpdateStatus }));
+mock.module('../agent-toast-window', () => ({ showAgentToast, hideAgentToast, handleAgentToastContentSize }));
+mock.module('../agent-sidecar', () => ({
+  AgentSidecarManager: class {
+    start = agentStart;
+    startRun = agentStartRun;
+    stop = agentStop;
+    getActiveAgentRunId = agentGetActiveAgentRunId;
+    sendApprovalDecision = agentSendApprovalDecision;
+  },
+}));
 
 describe('main process IPC orchestration', () => {
+  const baseConfig = {
+    whisperUrl: 'http://localhost:8080/inference',
+    selectedDeviceId: null,
+    removeFillerWords: true,
+    agent: {
+      enabled: false,
+      provider: {
+        baseUrl: '',
+        model: '',
+        apiKeyEnvVar: '',
+      },
+      mcpServers: [],
+    },
+  };
+
   afterAll(() => {
     mock.restore();
   });
@@ -105,13 +153,25 @@ describe('main process IPC orchestration', () => {
     getUpdateStatus.mockClear();
     updateAudioDevices.mockClear();
     updateUpdaterStatus.mockClear();
+    openSettingsWindow.mockClear();
+    getSettingsWindow.mockClear();
     keyboardStart.mockClear();
     keyboardStop.mockClear();
+    agentStartRun.mockClear();
+    agentStart.mockClear();
+    agentStop.mockClear();
+    agentGetActiveAgentRunId.mockClear();
+    agentSendApprovalDecision.mockClear();
+    showAgentToast.mockClear();
+    hideAgentToast.mockClear();
+    handleAgentToastContentSize.mockClear();
+    getConfig.mockReturnValue(baseConfig);
     await import(`../index?test=${Date.now()}-${Math.random()}`);
   });
 
   it('registers the expected IPC handlers and listeners', () => {
     expect([...ipcHandlers.keys()].sort()).toEqual([
+      'agent:approval-decision',
       'app:get-info',
       'audio:get-devices',
       'audio:select-device',
@@ -120,10 +180,13 @@ describe('main process IPC orchestration', () => {
       'clipboard:inject-text',
       'config:get',
       'config:set',
+      'mcp:test-server',
+      'settings:open',
       'updater:check',
       'updater:get-status',
     ]);
     expect([...ipcListeners.keys()].sort()).toEqual([
+      'agent-toast:content-size',
       'audio-data-ready',
       'audio-devices',
       'audio-duration-changed',
@@ -176,6 +239,63 @@ describe('main process IPC orchestration', () => {
     expect(electronMock.clipboard.writeText).toHaveBeenLastCalledWith('original');
   });
 
+  it('routes agent recordings to the sidecar without injecting text', async () => {
+    const config = {
+      whisperUrl: 'http://localhost:8080/inference',
+      selectedDeviceId: null,
+      removeFillerWords: true,
+      agent: {
+        enabled: true,
+        provider: {
+          baseUrl: 'https://openrouter.ai/api/v1',
+          model: 'openai/gpt-4.1-mini',
+          apiKeyEnvVar: 'OPENROUTER_API_KEY',
+        },
+        mcpServers: [],
+      },
+    };
+    getConfig.mockReturnValue(config);
+    ipcListeners.get('audio-window-ready')?.({});
+    const [onStart] = keyboardStart.mock.calls[0] as [(intent: 'dictation' | 'agent') => void];
+    onStart('agent');
+
+    const listenerPromise = ipcListeners.get('audio-data-ready')?.({}, new Uint8Array(64).buffer) as Promise<void>;
+    await listenerPromise;
+
+    expect(showRecordingPill).toHaveBeenCalledWith('agent');
+    expect(agentStartRun).toHaveBeenCalledWith('transcribed text', config);
+    expect(simulatePaste).not.toHaveBeenCalled();
+  });
+
+  it('routes dictation recordings through clipboard injection and not the agent sidecar', async () => {
+    ipcListeners.get('audio-window-ready')?.({});
+    const [onStart] = keyboardStart.mock.calls[0] as [(intent: 'dictation' | 'agent') => void];
+    onStart('dictation');
+
+    const listenerPromise = ipcListeners.get('audio-data-ready')?.({}, new Uint8Array(64).buffer) as Promise<void>;
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    expect(simulatePaste).toHaveBeenCalled();
+    await listenerPromise;
+
+    expect(showRecordingPill).toHaveBeenCalledWith('dictation');
+    expect(agentStartRun).not.toHaveBeenCalled();
+    expect(electronMock.clipboard.writeText).toHaveBeenCalledWith('transcribed text');
+  });
+
+  it('shows a config toast instead of starting the sidecar when Agent Mode is disabled', async () => {
+    ipcListeners.get('audio-window-ready')?.({});
+    const [onStart] = keyboardStart.mock.calls[0] as [(intent: 'dictation' | 'agent') => void];
+    onStart('agent');
+
+    await ipcListeners.get('audio-data-ready')?.({}, new Uint8Array(64).buffer);
+
+    expect(agentStartRun).not.toHaveBeenCalled();
+    expect(showAgentToast).toHaveBeenCalledWith({
+      kind: 'config',
+      message: 'Agent Mode is disabled. Open Settings to enable it.',
+    });
+  });
+
   it('skips empty WAV payloads', async () => {
     await ipcListeners.get('audio-data-ready')?.({}, new Uint8Array(44).buffer);
 
@@ -187,31 +307,98 @@ describe('main process IPC orchestration', () => {
     expect(ipcHandlers.get('config:get')?.({})).toEqual(getConfig());
     await expect(ipcHandlers.get('app:get-info')?.({})).resolves.toEqual({
       name: 'Shuddhalekhan',
-      version: '3.1.0',
+      version: '4.0.0',
       isPackaged: false,
     });
     expect(ipcHandlers.get('updater:get-status')?.({})).toEqual(getUpdateStatus());
     ipcHandlers.get('config:set')?.({}, 'whisperUrl', 'http://new');
+    ipcHandlers.get('mcp:test-server')?.({}, 'missing-server');
+    ipcHandlers.get('settings:open')?.({});
+    ipcHandlers.get('agent:approval-decision')?.({}, 'run-1', 'approval-1', 'denied', 'no');
     ipcHandlers.get('audio:select-device')?.({}, 'mic-1');
     ipcHandlers.get('updater:check')?.({});
     ipcListeners.get('audio-devices')?.({}, [{ deviceId: 'mic-1', label: 'Mic', kind: 'audioinput' }]);
     ipcListeners.get('audio-level-changed')?.({}, 0.75);
     ipcListeners.get('audio-duration-changed')?.({}, 12);
+    ipcListeners.get('agent-toast:content-size')?.({}, 280);
 
     expect(setConfig).toHaveBeenCalledWith('whisperUrl', 'http://new');
+    expect(agentStop).toHaveBeenCalled();
+    expect(openSettingsWindow).toHaveBeenCalled();
+    expect(agentSendApprovalDecision).toHaveBeenCalledWith('run-1', 'approval-1', 'denied', 'no');
+    expect(hideAgentToast).toHaveBeenCalled();
     expect(setConfig).toHaveBeenCalledWith('selectedDeviceId', 'mic-1');
     expect(send).toHaveBeenCalledWith('audio:select-device', 'mic-1');
     expect(checkForUpdates).toHaveBeenCalled();
     expect(updateAudioDevices).toHaveBeenCalledWith([{ deviceId: 'mic-1', label: 'Mic', kind: 'audioinput' }]);
     expect(send).toHaveBeenCalledWith('audio:level-changed', 0.75);
     expect(send).toHaveBeenCalledWith('audio:duration-changed', 12);
+    expect(handleAgentToastContentSize).toHaveBeenCalledWith(280);
   });
 
   it('stops native hooks and destroys the audio window before quit', () => {
     appListeners.get('before-quit')?.();
     appListeners.get('quit')?.();
 
-    expect(keyboardStop).toHaveBeenCalledTimes(2);
+    expect(keyboardStop).toHaveBeenCalledTimes(1);
+    expect(agentStop).toHaveBeenCalledTimes(1);
     expect(destroyAudioWindow).toHaveBeenCalled();
+  });
+
+  it('starts the agent sidecar on app ready when persisted Agent Mode is enabled', async () => {
+    const config = {
+      ...baseConfig,
+      agent: {
+        ...baseConfig.agent,
+        enabled: true,
+        provider: {
+          baseUrl: 'http://localhost:11434/v1',
+          model: 'local-model',
+          apiKeyEnvVar: '',
+        },
+        mcpServers: [
+          {
+            id: 'srv1',
+            displayName: 'Local MCP',
+            enabled: true,
+            transport: { type: 'http' as const, url: 'http://localhost:3000/mcp' },
+            discoveredTools: [],
+            toolPolicies: {},
+          },
+        ],
+      },
+    };
+    getConfig.mockReturnValue(config);
+
+    await import(`../index?test=${Date.now()}-agent-startup-enabled`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(agentStart).toHaveBeenCalledWith(config);
+  });
+
+  it('does not start the agent sidecar on app ready when Agent Mode is disabled', async () => {
+    const config = {
+      ...baseConfig,
+      agent: {
+        ...baseConfig.agent,
+        enabled: false,
+        mcpServers: [
+          {
+            id: 'srv1',
+            displayName: 'Local MCP',
+            enabled: true,
+            transport: { type: 'http' as const, url: 'http://localhost:3000/mcp' },
+            discoveredTools: [],
+            toolPolicies: {},
+          },
+        ],
+      },
+    };
+    getConfig.mockReturnValue(config);
+
+    await import(`../index?test=${Date.now()}-agent-startup-disabled`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(agentStart).not.toHaveBeenCalled();
   });
 });

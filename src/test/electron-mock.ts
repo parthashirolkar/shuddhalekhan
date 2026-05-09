@@ -8,7 +8,7 @@ export const electronMock = {
     on: mock(),
     getPath: mock(() => '/home/tester'),
     getAppPath: mock(() => '/app'),
-    getVersion: mock(() => '3.1.0'),
+    getVersion: mock(() => '4.0.0'),
     quit: mock(),
   },
   BrowserWindow: Object.assign(mock(), {
@@ -30,6 +30,9 @@ export const electronMock = {
     defaultSession: {
       setPermissionRequestHandler: mock(),
     },
+  },
+  shell: {
+    openExternal: mock(() => Promise.resolve()),
   },
   screen: {
     getPrimaryDisplay: mock(),
@@ -67,7 +70,7 @@ export function resetElectronMock(): void {
   electronMock.app.getAppPath.mockReset();
   electronMock.app.getAppPath.mockReturnValue('/app');
   electronMock.app.getVersion.mockReset();
-  electronMock.app.getVersion.mockReturnValue('3.1.0');
+  electronMock.app.getVersion.mockReturnValue('4.0.0');
   electronMock.app.quit.mockReset();
   electronMock.BrowserWindow.mockReset();
   electronMock.BrowserWindow.getAllWindows.mockReset();
@@ -81,6 +84,8 @@ export function resetElectronMock(): void {
   electronMock.dialog.showMessageBox.mockReset();
   electronMock.dialog.showMessageBox.mockResolvedValue({ response: 0 });
   electronMock.session.defaultSession.setPermissionRequestHandler.mockReset();
+  electronMock.shell.openExternal.mockReset();
+  electronMock.shell.openExternal.mockResolvedValue(undefined);
   electronMock.screen.getPrimaryDisplay.mockReset();
   electronMock.Tray.mockReset();
   electronMock.Menu.buildFromTemplate.mockReset();

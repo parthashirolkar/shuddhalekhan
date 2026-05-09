@@ -1,0 +1,320 @@
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { stepCountIs, streamText, type JSONValue, type Tool } from 'ai';
+import type { AppConfig } from '../types/ipc';
+import { logSidecar } from './protocol';
+
+export interface AgentRuntimeCallbacks {
+  onStatus(status: string): void;
+  onResponseDelta(textDelta: string, fullText: string): void;
+  onCompleted(response: string, toolSummary: string[]): void;
+  onFailed(error: string): void;
+  onCancelled(): void;
+  requestToolApproval(request: ToolApprovalRequest): Promise<ToolApprovalDecision>;
+  onAudit?(eventType: string, payload?: Record<string, unknown>): void;
+}
+
+export interface ToolApprovalRequest {
+  serverId: string;
+  toolName: string;
+  modelToolName: string;
+  arguments: unknown;
+}
+
+export type ToolApprovalDecision =
+  | {
+      approved: true;
+    }
+  | {
+      approved: false;
+      message: string;
+    };
+
+const SYSTEM_PROMPT = `You are Shuddhalekhan Agent, a stateless voice assistant. You execute one-off commands. You respect tool policies and approval decisions. If a tool call is rejected with "Rejected: tool approval window expired.", the likely cause is that the user is no longer deliberately focused on the request. Stop execution and respond that you have stopped and are waiting for the user's deliberate focus. Be concise.`;
+
+function getApiKey(envVarName: string): string | undefined {
+  return process.env[envVarName];
+}
+
+function requiresApiKey(baseUrl: string): boolean {
+  const parsed = new URL(baseUrl);
+  const hostname = parsed.hostname.toLowerCase();
+  return !['localhost', '127.0.0.1', '::1'].includes(hostname);
+}
+
+function looksLikeRawApiKey(value: string): boolean {
+  return /^sk-[A-Za-z0-9_-]/.test(value.trim());
+}
+
+function getProviderHeaders(baseUrl: string): Record<string, string> | undefined {
+  if (!baseUrl.includes('openrouter.ai')) return undefined;
+
+  return {
+    'HTTP-Referer': 'https://github.com/parthashirolkar/shuddhalekhan',
+    'X-OpenRouter-Title': 'Shuddhalekhan',
+  };
+}
+
+function isOpenRouterBaseUrl(baseUrl: string): boolean {
+  return baseUrl.includes('openrouter.ai');
+}
+
+function applyDefaultReasoningOptions(args: Record<string, unknown>, baseUrl: string): Record<string, unknown> {
+  if (!isOpenRouterBaseUrl(baseUrl)) return args;
+
+  return {
+    ...args,
+    reasoning: {
+      ...(typeof args.reasoning === 'object' && args.reasoning !== null ? args.reasoning : {}),
+      effort: 'none',
+    },
+  };
+}
+
+type AgentProviderOptions = Record<string, Record<string, JSONValue>>;
+
+function getDefaultProviderOptions(baseUrl: string): AgentProviderOptions {
+  const options: AgentProviderOptions = {
+    openaiCompatible: {
+      reasoningEffort: 'none',
+    },
+    shuddhalekhan: {
+      reasoningEffort: 'none',
+    },
+  };
+
+  if (isOpenRouterBaseUrl(baseUrl)) {
+    options.shuddhalekhan = {
+      reasoningEffort: 'none',
+      reasoning: {
+        effort: 'none',
+      },
+    };
+  }
+
+  return options;
+}
+
+function formatProviderError(err: unknown): string {
+  const messages = new Set<string>();
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== 'object') return;
+    const record = value as Record<string, unknown>;
+
+    if (typeof record.message === 'string') {
+      messages.add(record.message);
+    }
+
+    const statusCode = record.statusCode ?? record.status;
+    if (typeof statusCode === 'number') {
+      messages.add(`HTTP ${statusCode}`);
+    }
+
+    if (record.responseBody) {
+      messages.add(`Response: ${stringifyForMessage(record.responseBody)}`);
+    }
+
+    if (record.data) {
+      messages.add(`Details: ${stringifyForMessage(record.data)}`);
+    }
+
+    if (record.cause && record.cause !== value) {
+      visit(record.cause);
+    }
+  };
+
+  visit(err);
+
+  if (messages.size === 0) {
+    return err instanceof Error ? err.message : String(err);
+  }
+
+  return Array.from(messages).join(' | ');
+}
+
+function stringifyForMessage(value: unknown): string {
+  if (typeof value === 'string') return value;
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function normalizeFinalResponse(
+  response: string,
+  toolSummary: string[],
+  callbacks: AgentRuntimeCallbacks
+): string {
+  if (response.trim()) return response;
+
+  const hadToolActivity = toolSummary.length > 0;
+  callbacks.onAudit?.('empty_response_degraded', {
+    toolSummary,
+    hadToolActivity,
+  });
+
+  return hadToolActivity
+    ? 'The agent completed tool work but returned no final text.'
+    : 'The agent completed, but returned an empty response.';
+}
+
+export async function runAgent(
+  _agentRunId: string,
+  transcript: string,
+  config: AppConfig,
+  tools: Record<string, Tool>,
+  signal: AbortSignal,
+  callbacks: AgentRuntimeCallbacks
+): Promise<void> {
+  try {
+    callbacks.onAudit?.('run_started', {
+      transcript,
+      modelVisibleMessages: [{ role: 'user', content: transcript }],
+      toolNames: Object.keys(tools),
+    });
+
+    const provider = config.agent.provider;
+    if (!provider.baseUrl || !provider.model) {
+      callbacks.onFailed('Agent provider configuration is incomplete. Check base URL and model in Settings.');
+      return;
+    }
+
+    let apiKey = 'shuddhalekhan-local-provider';
+    if (requiresApiKey(provider.baseUrl)) {
+      if (!provider.apiKeyEnvVar) {
+        callbacks.onFailed('Agent provider configuration is incomplete. Remote providers require an API key environment variable in Settings.');
+        return;
+      }
+
+      apiKey = getApiKey(provider.apiKeyEnvVar) ?? '';
+      if (!apiKey) {
+        if (looksLikeRawApiKey(provider.apiKeyEnvVar)) {
+          callbacks.onFailed(
+            'Settings contains an API key value, but Shuddhalekhan expects an environment variable name. Set OPENROUTER_API_KEY in your shell, restart bun run dev, and put OPENROUTER_API_KEY in Settings.'
+          );
+          return;
+        }
+
+        callbacks.onFailed(`API key environment variable "${provider.apiKeyEnvVar}" is not set.`);
+        return;
+      }
+    } else if (provider.apiKeyEnvVar) {
+      if (looksLikeRawApiKey(provider.apiKeyEnvVar)) {
+        callbacks.onFailed(
+          'Settings contains an API key value, but Shuddhalekhan expects an environment variable name. Leave this field empty for local providers, or enter an environment variable name.'
+        );
+        return;
+      }
+
+      apiKey = getApiKey(provider.apiKeyEnvVar) ?? apiKey;
+    }
+
+    callbacks.onStatus('Connecting to tools...');
+
+    const model = createOpenAICompatible({
+      name: 'shuddhalekhan',
+      baseURL: provider.baseUrl,
+      apiKey,
+      headers: getProviderHeaders(provider.baseUrl),
+      transformRequestBody: (args) => applyDefaultReasoningOptions(args, provider.baseUrl),
+    }).chatModel(provider.model);
+
+    callbacks.onStatus('Thinking...');
+
+    let streamedResponse = '';
+    const result = streamText({
+      model,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: transcript }],
+      tools,
+      providerOptions: getDefaultProviderOptions(provider.baseUrl),
+      stopWhen: stepCountIs(5),
+      abortSignal: signal,
+      onChunk: ({ chunk }) => {
+        if (chunk.type !== 'text-delta') return;
+        streamedResponse += chunk.text;
+        callbacks.onResponseDelta(chunk.text, streamedResponse);
+      },
+      onStepFinish: ({ toolCalls }) => {
+        if (toolCalls.length > 0) {
+          const names = toolCalls.map((t) => String(t.toolName)).join(', ');
+          callbacks.onAudit?.('tool_requests', { toolCalls });
+          callbacks.onStatus(`Using tools: ${names}`);
+        } else {
+          callbacks.onStatus('Thinking...');
+        }
+      },
+    });
+
+    let finalResponse = await result.text;
+    if (!streamedResponse && finalResponse) {
+      callbacks.onResponseDelta(finalResponse, finalResponse);
+    }
+    const toolSummary: string[] = [];
+    const steps = await result.steps;
+    const toolCalls = await result.toolCalls;
+    const toolResults = await result.toolResults;
+
+    for (const step of steps) {
+      for (const tc of step.toolCalls) {
+        toolSummary.push(`Used ${String(tc.toolName)}`);
+      }
+      if (step.toolResults.length > 0) {
+        callbacks.onAudit?.('tool_results', { toolResults: step.toolResults });
+      }
+    }
+
+    const reachedMaxSteps = steps.length >= 5;
+    const hasPendingToolCalls = toolCalls.length > toolResults.length;
+
+    if (reachedMaxSteps && hasPendingToolCalls) {
+      callbacks.onStatus('Step limit reached. Summarizing...');
+      let fallbackResponse = '';
+      const fallback = streamText({
+        model,
+        system: SYSTEM_PROMPT,
+        messages: [
+          { role: 'user', content: transcript },
+          {
+            role: 'assistant',
+            content: finalResponse || 'I was in the middle of using tools to complete your request.',
+          },
+          {
+            role: 'user',
+            content:
+              'You have reached the maximum number of steps. Please provide a concise final response describing what completed and what remains.',
+          },
+        ],
+        providerOptions: getDefaultProviderOptions(provider.baseUrl),
+        abortSignal: signal,
+        onChunk: ({ chunk }) => {
+          if (chunk.type !== 'text-delta') return;
+          fallbackResponse += chunk.text;
+          callbacks.onResponseDelta(chunk.text, fallbackResponse);
+        },
+      });
+      finalResponse = await fallback.text;
+      if (!fallbackResponse && finalResponse) {
+        callbacks.onResponseDelta(finalResponse, finalResponse);
+      }
+      toolSummary.push('Max step guardrail reached');
+      callbacks.onAudit?.('max_step_guardrail', { stepCount: steps.length });
+    }
+
+    finalResponse = normalizeFinalResponse(finalResponse, toolSummary, callbacks);
+
+    callbacks.onAudit?.('run_completed', { response: finalResponse, toolSummary });
+    callbacks.onCompleted(finalResponse, toolSummary);
+  } catch (err) {
+    if (signal.aborted) {
+      callbacks.onAudit?.('run_cancelled');
+      callbacks.onCancelled();
+      return;
+    }
+    logSidecar('Agent runtime error', err);
+    const error = formatProviderError(err);
+    callbacks.onAudit?.('run_failed', { error });
+    callbacks.onFailed(error);
+  }
+}
