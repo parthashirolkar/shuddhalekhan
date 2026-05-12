@@ -15,6 +15,8 @@ const store = new Store<StoreConfig>({
     whisperUrl: 'http://localhost:8080/inference',
     selectedDeviceId: null,
     removeFillerWords: true,
+    language: 'auto',
+    task: 'transcribe',
     agent: {
       enabled: false,
       provider: {
@@ -67,6 +69,8 @@ export function getConfig(): AppConfig {
     whisperUrl: store.get('whisperUrl'),
     selectedDeviceId: store.get('selectedDeviceId'),
     removeFillerWords: store.get('removeFillerWords'),
+    language: store.get('language') ?? 'auto',
+    task: store.get('task') ?? 'transcribe',
     agent: {
       enabled: agent?.enabled ?? false,
       provider: {

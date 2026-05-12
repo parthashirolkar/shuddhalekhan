@@ -8,6 +8,8 @@ const config: AppConfig = {
   whisperUrl: 'http://whisper.test/inference',
   selectedDeviceId: null,
   removeFillerWords: true,
+  language: 'auto',
+  task: 'transcribe',
   agent: {
     enabled: false,
     provider: {
@@ -92,5 +94,35 @@ describe('transcribe', () => {
 
     await expect(transcribe(new Uint8Array([1]), config)).resolves.toBe('');
     expect(warn).toHaveBeenCalledWith('Whisper response did not include text:', { result: 'missing text' });
+  });
+
+  it('appends language and whisper.cpp translate form fields when configured', async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof mock>;
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ text: 'translated text' }),
+    } as Response);
+
+    await transcribe(new Uint8Array([1]), { ...config, language: 'mr', task: 'translate' });
+
+    const body = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+    expect(body.get('language')).toBe('mr');
+    expect(body.get('translate')).toBe('true');
+    expect(body.has('task')).toBe(false);
+  });
+
+  it('omits auto language and explicitly disables translation by default', async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof mock>;
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ text: 'hello' }),
+    } as Response);
+
+    await transcribe(new Uint8Array([1]), config);
+
+    const body = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+    expect(body.has('language')).toBe(false);
+    expect(body.get('translate')).toBe('false');
+    expect(body.has('task')).toBe(false);
   });
 });

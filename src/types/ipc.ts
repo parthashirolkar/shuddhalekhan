@@ -140,6 +140,8 @@ export interface AppConfig {
   whisperUrl: string;
   selectedDeviceId: string | null;
   removeFillerWords: boolean;
+  language: string;
+  task: 'transcribe' | 'translate';
   agent: {
     enabled: boolean;
     provider: {
