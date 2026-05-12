@@ -1,13 +1,21 @@
 import type { AppConfig } from '../types/ipc';
 
 export async function transcribe(audioData: Uint8Array, config?: AppConfig): Promise<string> {
-  const { whisperUrl, removeFillerWords } = config ?? await loadRuntimeConfig();
+  const { whisperUrl, removeFillerWords, language, task } = config ?? await loadRuntimeConfig();
 
   const form = new FormData();
   const blob = new Blob([audioData], { type: 'audio/wav' });
   form.append('file', blob, 'audio.wav');
   form.append('temperature', '0.2');
   form.append('response_format', 'json');
+
+  if (language) {
+    form.append('language', language);
+  }
+
+  if (task && task !== 'transcribe') {
+    form.append('task', task);
+  }
 
   if (removeFillerWords) {
     form.append(
