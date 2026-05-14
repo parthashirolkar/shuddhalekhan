@@ -15,10 +15,10 @@ Agent Mode is opt-in from Settings. When disabled, the agent sidecar and MCP con
 - Tray-first operation with microphone selection, transcription cleanup toggle, update checks, Settings, and exit.
 - Local Whisper-compatible transcription endpoint support.
 - Clipboard-safe text injection for Dictation.
-- Settings window for audio, Whisper, Agent provider, MCP servers, Gmail preset setup, and per-tool approval policies.
+- Settings window for audio, Whisper, Agent provider, generic MCP servers, and per-tool approval policies.
 - Agent Mode powered by the Vercel AI SDK and OpenAI-compatible model providers.
 - MCP client support for stdio and HTTP MCP servers.
-- OAuth callback flow for HTTP MCP integrations such as Gmail.
+- Generic HTTP and stdio MCP server configuration for Agent Mode.
 - Approval toasts for sensitive MCP tool calls, with per-tool policies: disabled, always ask, or always allow.
 - Local SQLite audit logging for agent runs, tool requests, approvals, results, and failures.
 - Electron auto-update support through GitHub Releases.
@@ -35,7 +35,7 @@ Agent Mode is opt-in from Settings. When disabled, the agent sidecar and MCP con
 
 - `src/renderer/` React UI (recording popup + hidden audio window)
 - `src/main/` Electron main process logic (hotkey, tray, Whisper, text injection)
-- `src/agent/` local agent sidecar, MCP registry, OAuth provider, audit logging, and runtime protocol
+- `src/agent/` local agent sidecar, MCP registry, audit logging, and runtime protocol
 - `src/preload/` IPC bridge
 - `icons/` application and tray icons
 
@@ -169,11 +169,11 @@ Settings supports:
 
 - stdio MCP servers with command, arguments, and inherited environment variable names.
 - HTTP MCP servers by URL.
-- OAuth-enabled HTTP MCP servers.
-- A Gmail preset for Google's Gmail MCP endpoint.
 - Per-tool approval policies after tool discovery.
 
 When Agent Mode is enabled, enabled MCP servers reconnect automatically on app startup and tools are discovered for the settings UI. Newly discovered tools default to `alwaysAsk`.
+
+Connection-level MCP-client OAuth is deferred until there is a generic authentication model. MCP presets/templates are intentionally not shipped in v4.
 
 ### Tool Approvals
 
