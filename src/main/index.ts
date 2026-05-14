@@ -1,4 +1,4 @@
-import { app, ipcMain, dialog, session } from 'electron';
+import { app, ipcMain, dialog, session, shell } from 'electron';
 import { createAudioWindow, getAudioWindow } from './audio-window';
 import { getRecordingPillWindow } from './recording-pill';
 import { getSettingsWindow, openSettingsWindow } from './settings-window';
@@ -20,6 +20,7 @@ const sidecarEventRouter = createSidecarEventRouter({
   getConfig,
   setConfig,
   showAgentToast,
+  openExternal: shell.openExternal,
 });
 const agentSidecar = new AgentSidecarManager(sidecarEventRouter.handle);
 const recordingSession = createRecordingSession(() => cachedAgentEnabled);

@@ -7,6 +7,7 @@ import { logSidecar, writeJsonLine } from './protocol';
 import type { AgentRuntimeCallbacks, ToolApprovalRequest } from './runtime';
 
 import { getMcpServerConnectionKey } from './mcp-server-config';
+import { SidecarOAuthProvider } from './oauth-provider';
 
 type RequestToolApproval = AgentRuntimeCallbacks['requestToolApproval'];
 type AuditCallback = NonNullable<AgentRuntimeCallbacks['onAudit']>;
@@ -16,6 +17,7 @@ type ManagedServer = {
   config: McpServerConfig;
   client: MCPClient;
   rawTools: Record<string, Tool>;
+  oauthProvider?: SidecarOAuthProvider;
 };
 
 export class McpRegistry {
@@ -85,10 +87,11 @@ export class McpRegistry {
   private async connect(server: McpServerConfig): Promise<void> {
     writeJsonLine({ type: 'mcp:server-status', serverId: server.id, status: 'connecting' });
 
+    let oauthProvider: SidecarOAuthProvider | undefined;
     try {
-      const client = await createMCPClient({ transport: createTransport(server) });
-      const rawTools = (await client.tools()) as Record<string, Tool>;
-      this.servers.set(server.id, { config: server, client, rawTools });
+      oauthProvider = await createOAuthProvider(server);
+      const { client, rawTools } = await connectMcpClient(server, oauthProvider);
+      this.servers.set(server.id, { config: server, client, rawTools, oauthProvider });
       writeJsonLine({
         type: 'mcp:tools-discovered',
         serverId: server.id,
@@ -108,6 +111,7 @@ export class McpRegistry {
         message: err instanceof Error ? err.message : String(err),
       });
       logSidecar(`MCP server failed: ${server.id}`, err);
+      oauthProvider?.close();
     }
   }
 
@@ -117,11 +121,12 @@ export class McpRegistry {
 
     this.servers.delete(serverId);
     await server.client.close().catch(() => undefined);
+    server.oauthProvider?.close();
     writeJsonLine({ type: 'mcp:server-status', serverId, status: 'disconnected' });
   }
 }
 
-function createTransport(server: McpServerConfig) {
+function createTransport(server: McpServerConfig, oauthProvider?: SidecarOAuthProvider) {
   if (server.transport.type === 'stdio') {
     const env: Record<string, string> = {};
     for (const name of server.transport.envVarNames) {
@@ -138,7 +143,41 @@ function createTransport(server: McpServerConfig) {
   return {
     type: 'http' as const,
     url: server.transport.url,
+    authProvider: oauthProvider,
   };
+}
+
+async function createOAuthProvider(server: McpServerConfig): Promise<SidecarOAuthProvider | undefined> {
+  if (server.transport.type !== 'http') return undefined;
+  const provider = new SidecarOAuthProvider(server);
+  await provider.start();
+  return provider;
+}
+
+async function connectMcpClient(
+  server: McpServerConfig,
+  oauthProvider?: SidecarOAuthProvider
+): Promise<{ client: MCPClient; rawTools: Record<string, Tool> }> {
+  try {
+    return await createConnectedClient(server, oauthProvider);
+  } catch (err) {
+    if (!oauthProvider?.tokens()?.access_token) throw err;
+    return await createConnectedClient(server, oauthProvider);
+  }
+}
+
+async function createConnectedClient(
+  server: McpServerConfig,
+  oauthProvider?: SidecarOAuthProvider
+): Promise<{ client: MCPClient; rawTools: Record<string, Tool> }> {
+  const client = await createMCPClient({ transport: createTransport(server, oauthProvider) });
+  try {
+    const rawTools = (await client.tools()) as Record<string, Tool>;
+    return { client, rawTools };
+  } catch (err) {
+    await client.close().catch(() => undefined);
+    throw err;
+  }
 }
 
 function wrapToolWithPolicy(

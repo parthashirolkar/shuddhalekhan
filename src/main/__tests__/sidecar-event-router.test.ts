@@ -37,6 +37,7 @@ describe('SidecarEventRouter', () => {
   let getConfig: ReturnType<typeof vi.fn>;
   let setConfig: ReturnType<typeof vi.fn>;
   let showAgentToast: ReturnType<typeof vi.fn>;
+  let openExternal: ReturnType<typeof vi.fn>;
   let router: ReturnType<typeof createSidecarEventRouter>;
 
   beforeEach(() => {
@@ -48,11 +49,13 @@ describe('SidecarEventRouter', () => {
     getConfig = vi.fn(() => baseConfig);
     setConfig = vi.fn();
     showAgentToast = vi.fn();
+    openExternal = vi.fn(async () => undefined);
     router = createSidecarEventRouter({
       getSettingsWindow,
       getConfig,
       setConfig,
       showAgentToast,
+      openExternal,
     });
   });
 
@@ -69,6 +72,16 @@ describe('SidecarEventRouter', () => {
       status: 'connected',
       message: 'ready',
     });
+  });
+
+  it('opens OAuth authorization URLs externally', () => {
+    router.handle({
+      type: 'oauth:open-url',
+      serverId: 'mail',
+      url: 'https://perfect-horizon.example.com/oauth/authorize',
+    });
+
+    expect(openExternal).toHaveBeenCalledWith('https://perfect-horizon.example.com/oauth/authorize');
   });
 
   it('persists discovered tools and defaults new tool policies to alwaysAsk', () => {

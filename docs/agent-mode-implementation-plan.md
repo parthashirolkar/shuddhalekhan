@@ -165,9 +165,10 @@ Revive Agent Mode as an opt-in, voice-first, stateless command executor. `Ctrl +
 ## Phase 13: Generic Hosted MCP Servers — In Progress
 
 - Remove the broken Gmail preset for Google's first-party Gmail MCP endpoint.
-- Remove Shuddhalekhan-owned MCP-client OAuth from v4.
+- Keep generic MCP-client OAuth for protected hosted MCP servers.
 - Keep generic HTTP and stdio MCP server configuration.
 - Hosted MCP servers may manage their own downstream OAuth internally.
+- Shuddhalekhan opens server-provided authorization URLs and stores MCP access tokens per configured server.
 - If a hosted server is not authorized with its downstream service, Shuddhalekhan surfaces the server's MCP status/tool errors rather than adding app-owned login UI.
 - Agent Mode works without any MCP server configured.
 

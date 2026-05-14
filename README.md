@@ -168,12 +168,12 @@ Agent Mode can run without MCP servers, but MCP servers are what let it use exte
 Settings supports:
 
 - stdio MCP servers with command, arguments, and inherited environment variable names.
-- HTTP MCP servers by URL.
+- HTTP MCP servers by URL, including protected remote servers that advertise standard MCP OAuth.
 - Per-tool approval policies after tool discovery.
 
 When Agent Mode is enabled, enabled MCP servers reconnect automatically on app startup and tools are discovered for the settings UI. Newly discovered tools default to `alwaysAsk`.
 
-Connection-level MCP-client OAuth is deferred until there is a generic authentication model. MCP presets/templates are intentionally not shipped in v4.
+MCP-client OAuth is generic: Shuddhalekhan opens the server-provided authorization URL, stores tokens per MCP server, and sends bearer tokens through the AI SDK transport. MCP presets/templates are intentionally not shipped in v4.
 
 ### Tool Approvals
 
