@@ -1,7 +1,7 @@
 import type { AppConfig } from '../types/ipc';
 
 export async function transcribe(audioData: Uint8Array, config?: AppConfig): Promise<string> {
-  const { whisperUrl, removeFillerWords, language, task } = config ?? await loadRuntimeConfig();
+  const { whisperUrl, removeFillerWords, language, task, dictionary } = config ?? await loadRuntimeConfig();
 
   const form = new FormData();
   const blob = new Blob([audioData], { type: 'audio/wav' });
@@ -14,11 +14,15 @@ export async function transcribe(audioData: Uint8Array, config?: AppConfig): Pro
     form.append('language', language);
   }
 
+  let promptText = '';
+  if (dictionary && dictionary.length > 0) {
+    promptText += `Glossary: ${dictionary.join(', ')}. `;
+  }
   if (removeFillerWords) {
-    form.append(
-      'prompt',
-      'The following is a clear, formal transcript without any stutters, repetitions, or filler words like um and ah.'
-    );
+    promptText += 'The following is a clear, formal transcript without any stutters, repetitions, or filler words like um and ah.';
+  }
+  if (promptText) {
+    form.append('prompt', promptText.trim());
   }
 
   const response = await fetch(whisperUrl, {

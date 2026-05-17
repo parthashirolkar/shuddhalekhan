@@ -17,6 +17,7 @@ const store = new Store<StoreConfig>({
     removeFillerWords: true,
     language: 'auto',
     task: 'transcribe',
+    dictionary: [],
     agent: {
       enabled: false,
       provider: {
@@ -71,6 +72,7 @@ export function getConfig(): AppConfig {
     removeFillerWords: store.get('removeFillerWords'),
     language: store.get('language') ?? 'auto',
     task: store.get('task') ?? 'transcribe',
+    dictionary: store.get('dictionary') ?? [],
     agent: {
       enabled: agent?.enabled ?? false,
       provider: {

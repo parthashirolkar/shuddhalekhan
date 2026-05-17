@@ -1,3 +1,15 @@
+# Shuddhalekhan 4.2.2
+
+This patch release adds a Personal Dictionary to Whisper dictation.
+
+## What's Changed
+
+### Dictation
+- Added a Personal Dictionary feature to the Settings > Audio tab.
+- Users can add custom words to the dictionary, which are passed to the Whisper endpoint to improve transcription accuracy.
+
+---
+
 # Shuddhalekhan 4.2.1
 
 This patch release restores generic OAuth support for protected hosted MCP servers.

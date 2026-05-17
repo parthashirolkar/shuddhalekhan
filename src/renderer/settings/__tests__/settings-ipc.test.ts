@@ -10,6 +10,7 @@ const config: AppConfig = {
   removeFillerWords: true,
   language: 'auto',
   task: 'transcribe',
+  dictionary: [],
   agent: {
     enabled: false,
     provider: {

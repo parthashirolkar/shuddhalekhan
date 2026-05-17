@@ -135,6 +135,7 @@ export interface AppConfig {
   removeFillerWords: boolean;
   language: string;
   task: 'transcribe' | 'translate';
+  dictionary: string[];
   agent: {
     enabled: boolean;
     provider: {

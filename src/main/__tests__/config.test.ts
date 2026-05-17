@@ -52,6 +52,7 @@ describe('config store', () => {
       removeFillerWords: true,
       language: 'auto',
       task: 'transcribe',
+      dictionary: [],
       agent: {
         enabled: false,
         provider: {
@@ -78,6 +79,7 @@ describe('config store', () => {
       removeFillerWords: false,
       language: 'auto',
       task: 'transcribe',
+      dictionary: [],
       agent: {
         enabled: false,
         provider: {
@@ -107,6 +109,7 @@ describe('config store', () => {
       removeFillerWords: false,
       language: 'auto',
       task: 'transcribe',
+      dictionary: [],
       agent: {
         enabled: false,
         provider: {
@@ -134,6 +137,7 @@ describe('config store', () => {
       removeFillerWords: true,
       language: 'auto',
       task: 'transcribe',
+      dictionary: [],
       agent: {
         enabled: false,
         provider: {
