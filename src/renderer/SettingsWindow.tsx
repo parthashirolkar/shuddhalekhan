@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { X as XIcon } from 'lucide-react';
 import { McpSettings } from './settings/McpSettings';
 import { createSettingsIpc } from './settings/settings-ipc';
 
@@ -197,6 +198,18 @@ export function SettingsWindow() {
                 />
                 <ReadOnlyRow label="Selected device" value={config.selectedDeviceId ?? 'Default input device'} />
                 <ReadOnlyRow label="Capture path" value="Shared by Dictation and Agent Mode" />
+                <div className="py-5 space-y-4 border-b border-border">
+                  <div className="space-y-1">
+                    <h3 className="text-sm font-medium">Personal Dictionary</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Add specific names, technical terms, or acronyms to help Whisper spell them correctly. Press Enter to add.
+                    </p>
+                  </div>
+                  <DictionaryInput 
+                    dictionary={config.dictionary} 
+                    onChange={(newDictionary) => updateConfig('dictionary', newDictionary)} 
+                  />
+                </div>
               </SettingsPanel>
             ) : null}
 
@@ -420,4 +433,61 @@ function isLocalProviderUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function DictionaryInput({
+  dictionary,
+  onChange,
+}: {
+  dictionary: string[];
+  onChange: (value: string[]) => void;
+}) {
+  const [inputValue, setInputValue] = useState('');
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && inputValue.trim()) {
+      e.preventDefault();
+      const newWord = inputValue.trim();
+      if (!dictionary.includes(newWord)) {
+        onChange([...dictionary, newWord]);
+      }
+      setInputValue('');
+    }
+  };
+
+  const removeWord = (wordToRemove: string) => {
+    onChange(dictionary.filter(word => word !== wordToRemove));
+  };
+
+  return (
+    <div className="space-y-3">
+      <Input
+        value={inputValue}
+        onChange={(e) => setInputValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="Type a word and press Enter..."
+        className="w-full bg-background"
+      />
+      <div className="flex flex-wrap gap-2">
+        {dictionary.map((word) => (
+          <span
+            key={word}
+            className="group inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary/50 px-2.5 py-1 text-sm font-medium text-secondary-foreground transition-all hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30"
+          >
+            {word}
+            <button
+              type="button"
+              onClick={() => removeWord(word)}
+              className="rounded-full p-0.5 opacity-60 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-destructive focus:ring-offset-1 focus:ring-offset-background"
+            >
+              <XIcon className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+        {dictionary.length === 0 && (
+          <span className="text-xs text-muted-foreground italic px-1 py-1.5">No words added yet.</span>
+        )}
+      </div>
+    </div>
+  );
 }
