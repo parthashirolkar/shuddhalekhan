@@ -7,11 +7,13 @@ const vi = { fn: mock };
 let RecordingSessionCtor: typeof RecordingSession;
 
 installElectronMock();
-mock.module('../audio-window', () => ({
+const audioWindowMock = {
   createAudioWindow: vi.fn(),
   getAudioWindow: vi.fn(),
   destroyAudioWindow: vi.fn(),
-}));
+};
+mock.module('../audio-window', () => audioWindowMock);
+mock.module('../audio-window.ts', () => audioWindowMock);
 mock.module('../native/keyboard', () => ({
   keyboardHook: { start: vi.fn(), stop: vi.fn() },
 }));

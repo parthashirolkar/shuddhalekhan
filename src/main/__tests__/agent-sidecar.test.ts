@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { EventEmitter } from 'events';
+import { normalize } from 'path';
 import { electronMock, installElectronMock, resetElectronMock } from '../../test/electron-mock';
 import type { AppConfig } from '../../types/ipc';
 import type { SidecarEvent } from '../../agent/protocol';
@@ -76,8 +77,8 @@ describe('AgentSidecarManager', () => {
     const agentRunId = manager.startRun('check mail', config);
 
     expect(spawn).toHaveBeenCalledWith(
-      'bun.exe',
-      ['D:\\git_repos\\speech-2-text\\src\\agent\\index.ts'],
+      process.platform === 'win32' ? 'bun.exe' : 'bun',
+      [normalize('D:/git_repos/speech-2-text/src/agent/index.ts')],
       expect.objectContaining({ stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     );
     expect(stdinWrite).toHaveBeenNthCalledWith(1, `${JSON.stringify({ type: 'config:update', config })}\n`);
@@ -107,7 +108,7 @@ describe('AgentSidecarManager', () => {
 
       expect(spawn).toHaveBeenCalledWith(
         process.execPath,
-        ['C:\\Program Files\\Shuddhalekhan\\resources\\app.asar\\out\\agent\\index.js'],
+        [normalize('C:/Program Files/Shuddhalekhan/resources/app.asar/out/agent/index.js')],
         expect.objectContaining({
           stdio: ['pipe', 'pipe', 'pipe'],
           windowsHide: true,

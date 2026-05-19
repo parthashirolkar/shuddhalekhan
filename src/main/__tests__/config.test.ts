@@ -33,6 +33,8 @@ mock.module('fs', () => ({
   unlinkSync,
 }));
 
+const expectedShortcutStatus = process.platform === 'win32' ? 'ready' : 'unassigned';
+
 describe('config store', () => {
   beforeEach(() => {
     storeData.clear();
@@ -68,13 +70,13 @@ describe('config store', () => {
           action: 'dictation',
           accelerator: 'Control+Meta',
           triggerMode: 'hold',
-          status: 'ready',
+          status: expectedShortcutStatus,
         },
         agent: {
           action: 'agent',
           accelerator: 'Alt+Meta',
           triggerMode: 'hold',
-          status: 'ready',
+          status: expectedShortcutStatus,
         },
       },
     });
@@ -109,13 +111,13 @@ describe('config store', () => {
           action: 'dictation',
           accelerator: 'Control+Meta',
           triggerMode: 'hold',
-          status: 'ready',
+          status: expectedShortcutStatus,
         },
         agent: {
           action: 'agent',
           accelerator: 'Alt+Meta',
           triggerMode: 'hold',
-          status: 'ready',
+          status: expectedShortcutStatus,
         },
       },
     });
@@ -153,13 +155,13 @@ describe('config store', () => {
           action: 'dictation',
           accelerator: 'Control+Meta',
           triggerMode: 'hold',
-          status: 'ready',
+          status: expectedShortcutStatus,
         },
         agent: {
           action: 'agent',
           accelerator: 'Alt+Meta',
           triggerMode: 'hold',
-          status: 'ready',
+          status: expectedShortcutStatus,
         },
       },
     });
@@ -195,13 +197,13 @@ describe('config store', () => {
           action: 'dictation',
           accelerator: 'Control+Meta',
           triggerMode: 'hold',
-          status: 'ready',
+          status: expectedShortcutStatus,
         },
         agent: {
           action: 'agent',
           accelerator: 'Alt+Meta',
           triggerMode: 'hold',
-          status: 'ready',
+          status: expectedShortcutStatus,
         },
       },
     });
@@ -296,13 +298,13 @@ describe('config store', () => {
         action: 'dictation',
         accelerator: 'Control+Meta',
         triggerMode: 'hold',
-        status: 'ready',
+        status: expectedShortcutStatus,
       },
       agent: {
         action: 'agent',
         accelerator: 'Alt+Meta',
         triggerMode: 'hold',
-        status: 'ready',
+        status: expectedShortcutStatus,
       },
     });
   });
